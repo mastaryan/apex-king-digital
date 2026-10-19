@@ -1,0 +1,92 @@
+[
+  {
+    "clientEmail": "",
+    "domainRenewal": null,
+    "hostingRenewal": null,
+    "id": "seed-bluegrass-doodle",
+    "name": "Bluegrass Doodle",
+    "notes": "",
+    "renderServiceId": "srv-db8hk9jrjlhs7386qaog",
+    "url": "https://bluegrassdoodle.com"
+  },
+  {
+    "clientEmail": "",
+    "domainRenewal": "2027-02-01",
+    "hostingRenewal": null,
+    "id": "seed-bluegrass-poodle",
+    "name": "Bluegrass Poodle",
+    "notes": "May sell before renewal.",
+    "renderServiceId": "srv-db8grt0473hc73etsed0",
+    "url": "https://bluegrasspoodle.com"
+  },
+  {
+    "clientEmail": "",
+    "domainRenewal": null,
+    "hostingRenewal": null,
+    "id": "seed-cigarette-ky",
+    "name": "Cigarette Kentucky",
+    "notes": "",
+    "renderServiceId": "srv-db8gruss728c738mhnbg",
+    "url": "https://cigarettekentucky.com"
+  },
+  {
+    "clientEmail": "",
+    "domainRenewal": null,
+    "hostingRenewal": null,
+    "id": "seed-cigarette-tn",
+    "name": "Cigarette Tennessee",
+    "notes": "",
+    "renderServiceId": "srv-db8grvavcj2c73ac3d90",
+    "url": "https://cigarettetennessee.com"
+  },
+  {
+    "clientEmail": "",
+    "domainRenewal": null,
+    "hostingRenewal": null,
+    "id": "seed-grundy",
+    "name": "Grundy Insurance",
+    "notes": "DNS cutover pending — Dustin holds DNS.",
+    "renderServiceId": "srv-db8grvhsrm7s73eaqi00",
+    "url": "https://grundyinsurance.net"
+  },
+  {
+    "clientEmail": "",
+    "domainRenewal": null,
+    "hostingRenewal": null,
+    "id": "seed-hkl",
+    "name": "Helix King Labs",
+    "notes": "",
+    "renderServiceId": "srv-db8fk18u01pc739kiiqg",
+    "url": "https://helixkinglabs.com"
+  },
+  {
+    "clientEmail": "",
+    "domainRenewal": null,
+    "hostingRenewal": null,
+    "id": "seed-ison",
+    "name": "Ison Marine",
+    "notes": "",
+    "renderServiceId": "srv-db8hlihsrm7s73ecskg0",
+    "url": "https://isonmarine.com"
+  },
+  {
+    "clientEmail": "",
+    "domainRenewal": "2027-04-17",
+    "hostingRenewal": null,
+    "id": "seed-rapid",
+    "name": "Rapid Courier",
+    "notes": "",
+    "renderServiceId": "srv-db8hk99srm7s73ecpetg",
+    "url": "https://rapidcourierservices.net"
+  },
+  {
+    "clientEmail": "",
+    "domainRenewal": null,
+    "hostingRenewal": null,
+    "id": "seed-skyview",
+    "name": "Skyview Hazard",
+    "notes": "Dev project — not built yet.",
+    "renderServiceId": "srv-db99qgrrjlhs73e0hhcg",
+    "url": "https://skyviewhazard.com"
+  }
+]

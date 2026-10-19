@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Apex King Digital — Client Dashboard</title>
+<style>
+:root{--bg:#0a0a0c;--card:#16161a;--line:#232329;--silver:#e8ecf2;--dim:#8f96a3;--green:#34d17b;--red:#ff5d5d;--gold:#c08a2d;--blue:#7db8ff;--amber:#e9b949}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;background:var(--bg);color:var(--silver);line-height:1.5;padding:34px 20px 60px}
+.wrap{max-width:760px;margin:0 auto}
+h1{font-size:30px;margin-bottom:6px}
+.sub{color:var(--dim);font-size:15.5px;margin-bottom:18px}
+.legend{display:flex;gap:18px;margin:0 0 18px;font-size:14px;color:var(--dim);align-items:center}
+.legend span{display:flex;align-items:center;gap:7px}
+.dot{width:11px;height:11px;border-radius:50%;flex:0 0 auto}
+.dot.green{background:var(--green);box-shadow:0 0 8px rgba(52,209,123,.7)}
+.dot.red{background:var(--red);box-shadow:0 0 8px rgba(255,93,93,.7)}
+.dot.gray{background:var(--dim)}
+.search{width:100%;background:var(--card);border:1px solid var(--line);border-radius:12px;color:var(--silver);font-size:16px;padding:13px 18px;margin-bottom:18px;font-family:inherit}
+.search:focus{outline:none;border-color:var(--gold)}
+.search::placeholder{color:var(--dim)}
+.list{display:flex;flex-direction:column;gap:10px}
+.site{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.site-head{display:flex;align-items:center;gap:12px;width:100%;background:none;border:none;color:var(--silver);font-family:inherit;font-size:17px;font-weight:700;padding:16px 20px;cursor:pointer;text-align:left}
+.site-head:hover{background:#1b1b20}
+.site-head .chev{margin-left:auto;color:var(--dim);font-size:14px;transition:transform .2s}
+.site.open .site-head .chev{transform:rotate(180deg)}
+.site-body{display:none;padding:0 20px 20px}
+.site.open .site-body{display:block}
+.url{display:block;color:var(--blue);text-decoration:none;font-size:15px;margin-bottom:12px;word-break:break-all}
+.url:hover{text-decoration:underline}
+.row{display:flex;justify-content:space-between;gap:12px;font-size:14px;padding:7px 0;border-top:1px solid var(--line)}
+.row .k{color:var(--dim);flex:0 0 auto}
+.row .v{font-weight:700;text-align:right}
+.row .v.soon{color:var(--amber)}
+.row .v.over{color:var(--red)}
+.row .v.tbd{color:var(--dim);font-weight:400}
+.note{font-size:13px;color:var(--dim);margin-top:10px}
+.actions{display:flex;gap:10px;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+.btn{background:#232329;border:1px solid #35353d;color:var(--silver);border-radius:999px;padding:9px 20px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit}
+.btn:hover{border-color:var(--gold)}
+.btn.danger:hover{border-color:var(--red);color:var(--red)}
+.btn.primary{background:linear-gradient(135deg,var(--gold),#9a6c1d);border:none;color:#fff}
+.add{border:2px dashed #35353d;border-radius:14px;display:flex;align-items:center;justify-content:center;gap:10px;padding:18px;color:var(--dim);font-size:15px;cursor:pointer;background:transparent;width:100%;font-family:inherit;margin-top:14px}
+.add:hover{border-color:var(--gold);color:var(--silver)}
+.add .plus{font-size:24px;color:var(--gold)}
+.no-results{display:none;text-align:center;color:var(--dim);padding:30px;font-size:15px}
+footer{margin-top:34px;color:var(--dim);font-size:13.5px;text-align:center;display:flex;justify-content:space-between;align-items:center}
+footer button{background:none;border:none;color:var(--dim);font-size:13.5px;cursor:pointer;font-family:inherit}
+footer button:hover{color:var(--silver)}
+/* login + editor */
+.gate{max-width:380px;margin:80px auto;text-align:center}
+.gate h1{margin-bottom:18px}
+.gate input{width:100%;background:var(--card);border:1px solid var(--line);border-radius:12px;color:var(--silver);font-size:16px;padding:13px 18px;margin-bottom:12px;font-family:inherit}
+.gate input:focus{outline:none;border-color:var(--gold)}
+.gate .err{color:var(--red);font-size:14px;margin-bottom:12px;min-height:20px}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:flex-start;justify-content:center;padding:24px 14px;z-index:10;overflow-y:auto}
+.modal.show{display:flex}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:24px;width:100%;max-width:520px}
+.card h2{font-size:20px;margin-bottom:16px}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:13px;color:var(--dim);margin-bottom:5px}
+.field input,.field textarea{width:100%;background:#0e0e11;border:1px solid var(--line);border-radius:10px;color:var(--silver);font-size:15px;padding:10px 14px;font-family:inherit}
+.field input:focus,.field textarea:focus{outline:none;border-color:var(--gold)}
+.field .hint{font-size:12px;color:var(--dim);margin-top:4px}
+.frow{display:flex;gap:12px}
+.frow .field{flex:1}
+.mactions{display:flex;gap:10px;margin-top:18px;justify-content:flex-end}
+.hidden{display:none!important}
+@media(max-width:600px){body{padding:22px 14px 48px}h1{font-size:24px}.site-head{font-size:16px;padding:15px 16px}.site-body{padding:0 16px 18px}}
+</style>
+</head>
+<body>
+<div class="wrap hidden" id="app">
+  <h1>Client Dashboard</h1>
+  <p class="sub">Every site on Render, at a glance. Tap a site to expand.</p>
+  <div class="legend">
+    <span><span class="dot green"></span> Live</span>
+    <span><span class="dot red"></span> Issue</span>
+    <span id="status-note" style="margin-left:auto"></span>
+  </div>
+  <input class="search" id="search" type="text" placeholder="🔍 Search sites…" autocomplete="off" />
+  <div class="list" id="site-list"></div>
+  <p class="no-results" id="no-results">No sites match your search.</p>
+  <button class="add" id="add-btn" type="button"><span class="plus">+</span> Add new site</button>
+  <footer><span>Apex King Digital</span><button id="logout" type="button">Sign out</button></footer>
+</div>
+
+<div class="gate hidden" id="gate">
+  <h1>👑 Apex Dashboard</h1>
+  <div class="err" id="login-err"></div>
+  <input type="password" id="pw" placeholder="Password" autocomplete="current-password" />
+  <button class="btn primary" id="login-btn" type="button" style="width:100%">Sign in</button>
+</div>
+
+<div class="modal" id="editor">
+  <div class="card">
+    <h2 id="editor-title">Add site</h2>
+    <div class="field"><label>Site name *</label><input id="f-name" placeholder="Bluegrass Doodle" /></div>
+    <div class="field"><label>Website URL *</label><input id="f-url" placeholder="https://bluegrassdoodle.com" /></div>
+    <div class="field"><label>Render service ID</label><input id="f-svc" placeholder="srv-…" /><div class="hint">Links the live status dot. Leave blank for non-Render sites.</div></div>
+    <div class="frow">
+      <div class="field"><label>Domain renewal due</label><input id="f-dom" type="date" /></div>
+      <div class="field"><label>Hosting renewal due</label><input id="f-host" type="date" /></div>
+    </div>
+    <div class="field"><label>Client email</label><input id="f-email" type="email" placeholder="client@example.com" /><div class="hint">Gets the 30 / 15 / 7 / 1-day renewal reminders.</div></div>
+    <div class="field"><label>Notes</label><textarea id="f-notes" rows="2" placeholder="DNS cutover pending…"></textarea></div>
+    <div class="mactions">
+      <button class="btn" id="ed-cancel" type="button">Cancel</button>
+      <button class="btn primary" id="ed-save" type="button">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var sites = [], statusMap = {}, editingId = null;
+
+function api(path, opts) {
+  return fetch(path, Object.assign({ headers: { 'Content-Type': 'application/json' } }, opts || {}))
+    .then(function(r){ if (r.status === 401) { showGate(); throw new Error('auth'); } return r.json().then(function(j){ return { ok: r.ok, j: j }; }); });
+}
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function daysUntil(dateStr){
+  if (!dateStr) return null;
+  var t = new Date(); t.setHours(0,0,0,0);
+  var d = new Date(dateStr + 'T00:00:00');
+  return Math.round((d - t) / 86400000);
+}
+function fmtDate(dateStr){
+  if (!dateStr) return null;
+  var d = new Date(dateStr + 'T00:00:00');
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+function renewalCell(dateStr){
+  var n = daysUntil(dateStr);
+  if (n === null) return '<span class="v tbd">TBD</span>';
+  var label = fmtDate(dateStr);
+  if (n < 0) return '<span class="v over">' + esc(label) + ' (' + Math.abs(n) + 'd overdue)</span>';
+  if (n <= 30) return '<span class="v soon">' + esc(label) + ' (' + n + 'd)</span>';
+  return '<span class="v">' + esc(label) + '</span>';
+}
+
+function render(){
+  var q = document.getElementById('search').value.trim().toLowerCase();
+  var list = document.getElementById('site-list');
+  list.innerHTML = '';
+  var visible = 0;
+  sites.slice().sort(function(a,b){ return a.name.toLowerCase().localeCompare(b.name.toLowerCase()); }).forEach(function(s){
+    if (q && s.name.toLowerCase().indexOf(q) === -1) return;
+    visible++;
+    var st = s.renderServiceId && statusMap[s.renderServiceId];
+    var dot = 'gray', title = 'Status unknown';
+    if (st) { dot = st.ok ? 'green' : 'red'; title = st.ok ? 'Live on Render' : ('Issue: ' + (st.deployStatus || st.error || 'unknown')); }
+    var div = document.createElement('div');
+    div.className = 'site'; div.dataset.id = s.id;
+    div.innerHTML =
+      '<button class="site-head" title="' + esc(title) + '"><span class="dot ' + dot + '"></span>' + esc(s.name) + '<span class="chev">▼</span></button>' +
+      '<div class="site-body">' +
+        '<a class="url" href="' + esc(s.url) + '" target="_blank" rel="noopener">' + esc(s.url.replace(/^https?:\/\//,'')) + ' →</a>' +
+        '<div class="row"><span class="k">Render status</span><span class="v ' + (dot === 'green' ? '' : dot === 'red' ? 'over' : 'tbd') + '">' + esc(title) + '</span></div>' +
+        '<div class="row"><span class="k">Domain renewal due</span>' + renewalCell(s.domainRenewal) + '</div>' +
+        '<div class="row"><span class="k">Hosting renewal due</span>' + renewalCell(s.hostingRenewal) + '</div>' +
+        (s.clientEmail ? '<div class="row"><span class="k">Client email</span><span class="v">' + esc(s.clientEmail) + '</span></div>' : '') +
+        (s.notes ? '<p class="note">' + esc(s.notes) + '</p>' : '') +
+        '<div class="actions"><button class="btn" data-act="edit">Edit</button><button class="btn danger" data-act="del">Delete</button></div>' +
+      '</div>';
+    list.appendChild(div);
+  });
+  document.getElementById('no-results').style.display = visible ? 'none' : 'block';
+}
+
+document.getElementById('site-list').addEventListener('click', function(e){
+  var head = e.target.closest('.site-head');
+  if (head) { head.parentElement.classList.toggle('open'); return; }
+  var btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  var id = btn.closest('.site').dataset.id;
+  var s = sites.find(function(x){ return x.id === id; });
+  if (btn.dataset.act === 'edit') openEditor(s);
+  if (btn.dataset.act === 'del' && confirm('Delete "' + s.name + '"?')) {
+    api('/api/sites/' + id, { method: 'DELETE' }).then(load);
+  }
+});
+
+document.getElementById('search').addEventListener('input', render);
+
+function openEditor(s){
+  editingId = s ? s.id : null;
+  document.getElementById('editor-title').textContent = s ? 'Edit site' : 'Add site';
+  document.getElementById('f-name').value = s ? s.name : '';
+  document.getElementById('f-url').value = s ? s.url : '';
+  document.getElementById('f-svc').value = s ? (s.renderServiceId || '') : '';
+  document.getElementById('f-dom').value = s ? (s.domainRenewal || '') : '';
+  document.getElementById('f-host').value = s ? (s.hostingRenewal || '') : '';
+  document.getElementById('f-email').value = s ? (s.clientEmail || '') : '';
+  document.getElementById('f-notes').value = s ? (s.notes || '') : '';
+  document.getElementById('editor').classList.add('show');
+}
+document.getElementById('add-btn').addEventListener('click', function(){ openEditor(null); });
+document.getElementById('ed-cancel').addEventListener('click', function(){ document.getElementById('editor').classList.remove('show'); });
+document.getElementById('editor').addEventListener('click', function(e){ if (e.target === this) this.classList.remove('show'); });
+document.getElementById('ed-save').addEventListener('click', function(){
+  var body = {
+    name: document.getElementById('f-name').value.trim(),
+    url: document.getElementById('f-url').value.trim(),
+    renderServiceId: document.getElementById('f-svc').value.trim(),
+    domainRenewal: document.getElementById('f-dom').value || null,
+    hostingRenewal: document.getElementById('f-host').value || null,
+    clientEmail: document.getElementById('f-email').value.trim(),
+    notes: document.getElementById('f-notes').value.trim(),
+  };
+  if (!body.name || !body.url) { alert('Name and URL are required.'); return; }
+  var p = editingId
+    ? api('/api/sites/' + editingId, { method: 'PUT', body: JSON.stringify(body) })
+    : api('/api/sites', { method: 'POST', body: JSON.stringify(body) });
+  p.then(function(){ document.getElementById('editor').classList.remove('show'); load(); });
+});
+
+function load(){
+  api('/api/sites').then(function(r){
+    if (!r.ok) return;
+    sites = r.j;
+    render();
+    return api('/api/status');
+  }).then(function(r){
+    if (!r || !r.ok) return;
+    statusMap = (r.j.configured && r.j.services) || {};
+    document.getElementById('status-note').textContent = r.j.configured ? 'Live status connected' : 'Render API key not set';
+    render();
+  }).catch(function(){});
+}
+
+function showGate(){
+  document.getElementById('app').classList.add('hidden');
+  document.getElementById('gate').classList.remove('hidden');
+}
+function doLogin(){
+  var pw = document.getElementById('pw').value;
+  fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pw }) })
+    .then(function(r){ return r.json().then(function(j){ return { ok: r.ok, j: j }; }); })
+    .then(function(r){
+      if (r.ok) {
+        document.getElementById('gate').classList.add('hidden');
+        document.getElementById('app').classList.remove('hidden');
+        document.getElementById('pw').value = '';
+        load();
+      } else {
+        document.getElementById('login-err').textContent = 'Wrong password.';
+      }
+    });
+}
+document.getElementById('login-btn').addEventListener('click', doLogin);
+document.getElementById('pw').addEventListener('keydown', function(e){ if (e.key === 'Enter') doLogin(); });
+document.getElementById('logout').addEventListener('click', function(){
+  fetch('/api/logout', { method: 'POST' }).then(showGate);
+});
+
+api('/api/me').then(function(r){
+  if (r.ok && r.j.authed) {
+    document.getElementById('gate').classList.add('hidden');
+    document.getElementById('app').classList.remove('hidden');
+    load();
+  } else showGate();
+}).catch(showGate);
+</script>
+</body>
+</html>
