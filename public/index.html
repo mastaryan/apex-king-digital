@@ -124,6 +124,7 @@ footer button:hover{color:var(--silver)}
       <div class="field"><label>Hosting renewal due</label><input id="f-host" type="date" /></div>
     </div>
     <div class="field"><label>Client email</label><input id="f-email" type="email" placeholder="client@example.com" /><div class="hint">Gets the 30 / 15 / 7 / 1-day renewal reminders.</div></div>
+    <div class="field"><label>Contact first name</label><input id="f-contact" placeholder="Kross" /><div class="hint">Used for friendly greetings — “Hi Kross,” — in emails that go with invoices.</div></div>
     <div class="field"><label>Notes</label><textarea id="f-notes" rows="2" placeholder="DNS cutover pending…"></textarea></div>
     <div class="mactions">
       <button class="btn" id="ed-cancel" type="button">Cancel</button>
@@ -334,6 +335,7 @@ function openEditor(s){
   document.getElementById('f-dom').value = s ? (s.domainRenewal || '') : '';
   document.getElementById('f-host').value = s ? (s.hostingRenewal || '') : '';
   document.getElementById('f-email').value = s ? (s.clientEmail || '') : '';
+  document.getElementById('f-contact').value = s ? (s.contactName || '') : '';
   document.getElementById('f-notes').value = s ? (s.notes || '') : '';
   document.getElementById('editor').classList.add('show');
 }
@@ -348,6 +350,7 @@ document.getElementById('ed-save').addEventListener('click', function(){
     domainRenewal: document.getElementById('f-dom').value || null,
     hostingRenewal: document.getElementById('f-host').value || null,
     clientEmail: document.getElementById('f-email').value.trim(),
+    contactName: document.getElementById('f-contact').value.trim(),
     notes: document.getElementById('f-notes').value.trim(),
   };
   if (!body.name || !body.url) { alert('Name and URL are required.'); return; }

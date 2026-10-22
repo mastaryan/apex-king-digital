@@ -225,11 +225,12 @@ async function emailCopyToRyan(site, rec, inv) {
 async function emailCompanionToClient(site, rec, inv) {
   const att = readAttachment(rec);
   if (!att) return;
+  const first = (site.contactName || "").trim();
   await sendMail({
     to: rec.recipient,
     subject: "Your website performance & SEO review — " + site.name,
     text:
-      "Hi,\n\n" +
+      (first ? "Hi " + first + ",\n\n" : "Hi,\n\n") +
       "Attached is the website performance & SEO review we prepared for " + site.name + " (" + domainOf(site) + ") — how the site performed this year and the improvements we recommend next.\n\n" +
       "Your annual website renewal invoice " + (rec.number || "") + " ($100, due " + fmtDate(rec.dueDate) + ") is coming in a separate email from Stripe. You can also view and pay it here:\n" + (rec.hostedUrl || "") + "\n\n" +
       "Questions? Just reply to this email or write us at hello@apexkingdigital.com.\n\n" +
