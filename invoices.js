@@ -248,21 +248,29 @@ async function createRenewalInvoice(site, opts) {
   const recipient = isTest ? COPY_EMAIL : (site.clientEmail || "").trim();
   if (!recipient) throw new Error("no_client_email");
   const customer = await findOrCreateCustomer(recipient, isTest ? "TEST — " + site.name : site.name);
-  const inv = await stripeCall("POST", "/v1/invoices", {
-    customer: customer.id,
-    collection_method: "send_invoice",
-    due_date: dueTs(dueIso),
-    auto_advance: false,
-    description: memoFor(site, renewalIso),
-    metadata: {
-      apex_site_id: site.id, renewal_date: renewalIso, kind: "annual_renewal",
-      test: isTest ? "1" : "", auto: opts.auto ? "1" : "",
-    },
-  });
-  await stripeCall("POST", "/v1/invoiceitems", {
-    customer: customer.id, invoice: inv.id,
-    price: RENEWAL_PRICE, description: lineFor(site, renewalIso),
-  });
+  const daysDue = Math.max(0, daysUntil(dueIso) || 0);
+  let inv;
+  try {
+    inv = await stripeCall("POST", "/v1/invoices", {
+      customer: customer.id,
+      collection_method: "send_invoice",
+      days_until_due: daysDue,
+      auto_advance: false,
+      description: memoFor(site, renewalIso),
+      metadata: {
+        apex_site_id: site.id, renewal_date: renewalIso, kind: "annual_renewal",
+        test: isTest ? "1" : "", auto: opts.auto ? "1" : "",
+      },
+    });
+  } catch (e) { throw new Error("create_invoice: " + e.message); }
+  try {
+    await stripeCall("POST", "/v1/invoiceitems", {
+      customer: customer.id, invoice: inv.id,
+      pricing: { price: RENEWAL_PRICE }, description: lineFor(site, renewalIso),
+    });
+    const check = await stripeCall("GET", "/v1/invoices/" + inv.id);
+    if (!check.total) throw new Error("line item did not attach (invoice total is 0)");
+  } catch (e) { throw new Error("add_item: " + e.message); }
   const rec = {
     id: inv.id, number: null, status: "draft", amount: 10000, currency: "usd",
     test: isTest, auto: !!opts.auto, renewalDate: renewalIso, dueDate: dueIso,
@@ -283,8 +291,11 @@ async function createRenewalInvoice(site, opts) {
 }
 
 async function finalizeSend(site, rec) {
-  await stripeCall("POST", "/v1/invoices/" + rec.id + "/finalize");
-  const sent = await stripeCall("POST", "/v1/invoices/" + rec.id + "/send");
+  try { await stripeCall("POST", "/v1/invoices/" + rec.id + "/finalize"); }
+  catch (e) { throw new Error("finalize: " + e.message); }
+  let sent;
+  try { sent = await stripeCall("POST", "/v1/invoices/" + rec.id + "/send"); }
+  catch (e) { throw new Error("send: " + e.message); }
   rec.status = sent.status;
   rec.number = sent.number || rec.number;
   rec.hostedUrl = sent.hosted_invoice_url || rec.hostedUrl;
