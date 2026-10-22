@@ -202,6 +202,7 @@ function render(){
         '<div class="row"><span class="k">Hosting renewal due</span>' + renewalCell(s.hostingRenewal) + '</div>' +
         (s.clientEmail ? '<div class="row"><span class="k">Client email</span><span class="v">' + esc(s.clientEmail) + '</span></div>' : '') +
         (s.notes ? '<p class="note">' + esc(s.notes) + '</p>' : '') +
+        (s.invoiceGateHold ? '<p class="note">⏸ Invoice automation held for this site — manual sends only.</p>' : '') +
         '<div class="actions"><button class="btn" data-act="edit">Edit</button><button class="btn" data-act="invoice">🧾 Invoice</button><button class="btn danger" data-act="del">Delete</button></div>' +
         invListHtml(s) +
       '</div>';

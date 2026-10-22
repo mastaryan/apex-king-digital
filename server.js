@@ -103,7 +103,7 @@ app.put('/api/sites/:id', authRequired, (req, res) => {
   const i = sites.findIndex(s => s.id === req.params.id);
   if (i === -1) return res.status(404).json({ error: 'not found' });
   const b = req.body || {};
-  for (const k of ['name', 'url', 'renderServiceId', 'domainRenewal', 'hostingRenewal', 'clientEmail', 'notes']) {
+  for (const k of ['name', 'url', 'renderServiceId', 'domainRenewal', 'hostingRenewal', 'clientEmail', 'notes', 'invoiceGateHold']) {
     if (b[k] !== undefined) sites[i][k] = b[k] === '' ? (k === 'domainRenewal' || k === 'hostingRenewal' ? null : '') : b[k];
   }
   saveSites(sites);

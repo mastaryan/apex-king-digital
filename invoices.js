@@ -303,6 +303,7 @@ async function runGate() {
   const summary = { drafted: [], sent: [], errors: [] };
   let dirty = false;
   for (const site of sites) {
+    if (site.invoiceGateHold) { (summary.held = summary.held || []).push(site.name); continue; }
     if (!(site.clientEmail || "").trim()) continue;
     const renewalIso = earliestRenewal(site);
     if (!renewalIso) continue;
