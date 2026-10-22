@@ -11,7 +11,7 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 const API_TOKEN = process.env.API_TOKEN || '';
 const RENDER_API_KEY = process.env.RENDER_API_KEY || '';
 
-app.use(express.json({ limit: '256kb', verify: (req, res, buf) => { req.rawBody = buf; } }));
+app.use(express.json({ limit: '6mb', verify: (req, res, buf) => { req.rawBody = buf; } }));
 app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] }));
 
 // ---------- tiny session auth ----------
@@ -173,5 +173,8 @@ app.get('/api/status', authRequired, async (req, res) => {
 
 // Stripe bridge (checkout sessions + webhook for storefront orders)
 try { require('./stripe-bridge').mountStripeBridge(app); } catch (e) { console.error('stripe bridge mount', e.message); }
+
+// Invoicing (renewal invoices, copy-to-Ryan email, review gate)
+try { require('./invoices').mountInvoices(app, authRequired); } catch (e) { console.error('invoices mount', e.message); }
 
 app.listen(PORT, () => console.log('apex-dashboard listening on ' + PORT));

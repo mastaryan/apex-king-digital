@@ -68,6 +68,25 @@ footer button:hover{color:var(--silver)}
 .frow .field{flex:1}
 .mactions{display:flex;gap:10px;margin-top:18px;justify-content:flex-end}
 .hidden{display:none!important}
+/* invoices */
+.invbox{margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+.invbox h4{font-size:13px;color:var(--dim);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px}
+.invrow{display:flex;align-items:center;gap:9px;font-size:13.5px;padding:7px 0;border-top:1px solid var(--line);flex-wrap:wrap}
+.invrow:first-of-type{border-top:none}
+.chip{font-size:11px;font-weight:700;padding:2.5px 9px;border-radius:999px;text-transform:uppercase;letter-spacing:.4px}
+.chip.draft{background:#2a2a31;color:var(--dim)}
+.chip.open{background:rgba(233,185,73,.16);color:var(--amber)}
+.chip.paid{background:rgba(52,209,123,.16);color:var(--green)}
+.chip.void,.chip.deleted,.chip.uncollectible{background:rgba(255,93,93,.14);color:var(--red)}
+.chip.test{background:rgba(125,184,255,.16);color:var(--blue)}
+.invrow .sp{margin-left:auto;display:flex;gap:7px;align-items:center}
+.invrow a{color:var(--blue);text-decoration:none;font-size:13px}
+.invrow a:hover{text-decoration:underline}
+.btn.sm{padding:5px 13px;font-size:12.5px}
+.memo-preview{background:#0e0e11;border:1px solid var(--line);border-radius:10px;padding:10px 13px;font-size:13.5px;color:var(--dim);line-height:1.45}
+.inv-status{font-size:13.5px;margin-top:12px;min-height:19px}
+.inv-status.err{color:var(--red)}
+.inv-status.ok{color:var(--green)}
 @media(max-width:600px){body{padding:22px 14px 48px}h1{font-size:24px}.site-head{font-size:16px;padding:15px 16px}.site-body{padding:0 16px 18px}}
 </style>
 </head>
@@ -109,6 +128,26 @@ footer button:hover{color:var(--silver)}
     <div class="mactions">
       <button class="btn" id="ed-cancel" type="button">Cancel</button>
       <button class="btn primary" id="ed-save" type="button">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="invmodal">
+  <div class="card">
+    <h2 id="inv-title">Invoice</h2>
+    <div class="field"><label>Bill to</label><div class="memo-preview" id="inv-to">—</div></div>
+    <div class="frow">
+      <div class="field"><label>Amount</label><div class="memo-preview">$100.00 — Annual Website Renewal</div></div>
+      <div class="field"><label>Due date</label><input id="inv-due" type="date" /></div>
+    </div>
+    <div class="field"><label>Memo on the invoice</label><div class="memo-preview" id="inv-memo">—</div></div>
+    <div class="field"><label>Attach a file for the client (optional, PDF)</label><input id="inv-file" type="file" accept="application/pdf,.pdf" /><div class="hint">Stripe can't attach files to invoices, so this rides in a companion email from hello@apexkingdigital.com with the pay link — sent at the same moment as the invoice.</div></div>
+    <div class="inv-status" id="inv-status"></div>
+    <div class="mactions" style="justify-content:flex-start;flex-wrap:wrap">
+      <button class="btn" id="inv-draft" type="button">Create draft</button>
+      <button class="btn" id="inv-test" type="button">Send test to me</button>
+      <button class="btn primary" id="inv-send" type="button">Send to client</button>
+      <button class="btn" id="inv-cancel" type="button" style="margin-left:auto">Close</button>
     </div>
   </div>
 </div>
@@ -163,21 +202,121 @@ function render(){
         '<div class="row"><span class="k">Hosting renewal due</span>' + renewalCell(s.hostingRenewal) + '</div>' +
         (s.clientEmail ? '<div class="row"><span class="k">Client email</span><span class="v">' + esc(s.clientEmail) + '</span></div>' : '') +
         (s.notes ? '<p class="note">' + esc(s.notes) + '</p>' : '') +
-        '<div class="actions"><button class="btn" data-act="edit">Edit</button><button class="btn danger" data-act="del">Delete</button></div>' +
+        '<div class="actions"><button class="btn" data-act="edit">Edit</button><button class="btn" data-act="invoice">🧾 Invoice</button><button class="btn danger" data-act="del">Delete</button></div>' +
+        invListHtml(s) +
       '</div>';
     list.appendChild(div);
   });
   document.getElementById('no-results').style.display = visible ? 'none' : 'block';
 }
 
+function earliestRenewalIso(s){
+  var ds = [s.domainRenewal, s.hostingRenewal].filter(Boolean).sort();
+  return ds.length ? ds[0] : null;
+}
+function invListHtml(s){
+  var invs = (s.invoices || []).filter(function(r){ return r.status !== 'deleted'; });
+  if (!invs.length) return '';
+  var h = '<div class="invbox"><h4>Invoices</h4>';
+  invs.forEach(function(r){
+    var label = r.number || 'Draft';
+    var due = r.dueDate ? fmtDate(r.dueDate) : '';
+    h += '<div class="invrow"><span class="chip ' + esc(r.status) + '">' + esc(r.status === 'open' ? 'sent · unpaid' : r.status) + '</span>' +
+      (r.test ? '<span class="chip test">test</span>' : '') +
+      '<span>' + esc(label) + ' — $100.00' + (due ? ' · due ' + esc(due) : '') + (r.attachmentName ? ' · 📎 ' + esc(r.attachmentName) : '') + '</span>' +
+      '<span class="sp">' +
+      (r.hostedUrl ? '<a href="' + esc(r.hostedUrl) + '" target="_blank" rel="noopener">View</a>' : '') +
+      (r.pdfUrl ? '<a href="' + esc(r.pdfUrl) + '" target="_blank" rel="noopener">PDF</a>' : '') +
+      (r.status === 'draft' ? '<button class="btn sm" data-inv="' + esc(r.id) + '" data-inv-act="send">Send</button>' : '') +
+      ((r.status === 'draft' || r.status === 'open') ? '<button class="btn sm danger" data-inv="' + esc(r.id) + '" data-inv-act="void">Void</button>' : '') +
+      '</span></div>';
+  });
+  return h + '</div>';
+}
+
+var invSiteId = null, invAttachment = null;
+function openInvoice(s){
+  invSiteId = s.id; invAttachment = null;
+  document.getElementById('inv-file').value = '';
+  document.getElementById('inv-status').textContent = '';
+  document.getElementById('inv-status').className = 'inv-status';
+  document.getElementById('inv-title').textContent = 'Invoice — ' + s.name;
+  var ren = earliestRenewalIso(s);
+  document.getElementById('inv-to').textContent = s.clientEmail ? (s.name + ' — ' + s.clientEmail) : '⚠ No client email on this site — add one via Edit first (tests still go to you).';
+  document.getElementById('inv-due').value = ren || '';
+  var dom = s.url.replace(/^https?:\/\//, '').replace(/\/$/, '');
+  document.getElementById('inv-memo').textContent = ren
+    ? 'Annual website renewal for ' + dom + ' — hosting, updates & care for the year ahead. Renewal date: ' + fmtDate(ren) + '. Thank you for your business!'
+    : '⚠ No renewal date on this site — add one via Edit first.';
+  document.getElementById('invmodal').classList.add('show');
+  // refresh live statuses, then re-render behind the modal
+  api('/api/sites/' + s.id + '/invoices').then(function(r){
+    if (r.ok) { s.invoices = r.j; render(); }
+  }).catch(function(){});
+}
+document.getElementById('inv-cancel').addEventListener('click', function(){ document.getElementById('invmodal').classList.remove('show'); });
+document.getElementById('invmodal').addEventListener('click', function(e){ if (e.target === this) this.classList.remove('show'); });
+document.getElementById('inv-file').addEventListener('change', function(){
+  var f = this.files && this.files[0];
+  invAttachment = null;
+  if (!f) return;
+  var rd = new FileReader();
+  rd.onload = function(){
+    var b64 = String(rd.result).split(',')[1] || '';
+    invAttachment = { filename: f.name, dataBase64: b64 };
+    invStatus('Attached: ' + f.name, true);
+  };
+  rd.readAsDataURL(f);
+});
+function invStatus(msg, ok){
+  var el = document.getElementById('inv-status');
+  el.textContent = msg;
+  el.className = 'inv-status ' + (ok ? 'ok' : 'err');
+}
+function invCreate(mode){
+  var s = sites.find(function(x){ return x.id === invSiteId; });
+  if (!s) return;
+  if (mode === 'send' && !s.clientEmail) { invStatus('No client email on this site — add one via Edit first.', false); return; }
+  var due = document.getElementById('inv-due').value || null;
+  var body = { mode: mode, dueDate: due, attachment: invAttachment };
+  invStatus('Working…', true);
+  api('/api/sites/' + invSiteId + '/invoices', { method: 'POST', body: JSON.stringify(body) }).then(function(r){
+    if (!r.ok) { invStatus('Failed: ' + (r.j.error || 'unknown error'), false); return; }
+    var msg = mode === 'draft' ? 'Draft created — find it in the invoice list below, review it, then Send.' :
+      mode === 'test' ? 'Test sent to your email — invoice + copy are on their way. Don\'t pay it; void it from the list when you\'re done looking.' :
+      'Sent to ' + s.clientEmail + ' — your copy is on its way to your inbox too.';
+    document.getElementById('invmodal').classList.remove('show');
+    load();
+    alert(msg);
+  }).catch(function(){ invStatus('Failed: network error', false); });
+}
+document.getElementById('inv-draft').addEventListener('click', function(){ invCreate('draft'); });
+document.getElementById('inv-test').addEventListener('click', function(){ invCreate('test'); });
+document.getElementById('inv-send').addEventListener('click', function(){
+  var s = sites.find(function(x){ return x.id === invSiteId; });
+  if (s && confirm('Send the $100 renewal invoice to ' + (s.clientEmail || '?') + ' now?')) invCreate('send');
+});
+
 document.getElementById('site-list').addEventListener('click', function(e){
   var head = e.target.closest('.site-head');
   if (head) { head.parentElement.classList.toggle('open'); return; }
+  var ibtn = e.target.closest('button[data-inv]');
+  if (ibtn) {
+    var iid = ibtn.closest('.site').dataset.id;
+    var invId = ibtn.dataset.inv, act = ibtn.dataset.invAct;
+    if (act === 'void' && !confirm('Void this invoice? This cannot be undone.')) return;
+    api('/api/sites/' + iid + '/invoices/' + invId + '/' + act, { method: 'POST', body: '{}' }).then(function(r){
+      if (!r.ok) alert('Failed: ' + (r.j.error || 'unknown error'));
+      load();
+    });
+    return;
+  }
   var btn = e.target.closest('button[data-act]');
   if (!btn) return;
   var id = btn.closest('.site').dataset.id;
   var s = sites.find(function(x){ return x.id === id; });
   if (btn.dataset.act === 'edit') openEditor(s);
+  if (btn.dataset.act === 'invoice') openInvoice(s);
   if (btn.dataset.act === 'del' && confirm('Delete "' + s.name + '"?')) {
     api('/api/sites/' + id, { method: 'DELETE' }).then(load);
   }
