@@ -58,6 +58,11 @@ function stripeCall(method, apiPath, params) {
         "Authorization": "Basic " + Buffer.from(key + ":").toString("base64"),
         "Content-Type": "application/x-www-form-urlencoded",
         "Content-Length": Buffer.byteLength(body),
+        // Pin the API version: the account default (newer) refuses to create
+        // an empty draft invoice ("Nothing to invoice for customer"), while
+        // the connector's pinned version creates one fine. 2025-08-27 also
+        // supports the pricing{} invoice-item shape this module uses.
+        "Stripe-Version": "2025-08-27",
       },
     }, res => {
       let data = "";
@@ -256,6 +261,7 @@ async function createRenewalInvoice(site, opts) {
       collection_method: "send_invoice",
       days_until_due: daysDue,
       auto_advance: false,
+      pending_invoice_items_behavior: "exclude",
       description: memoFor(site, renewalIso),
       metadata: {
         apex_site_id: site.id, renewal_date: renewalIso, kind: "annual_renewal",
