@@ -178,6 +178,17 @@ footer button:hover{color:var(--silver)}
   </div>
 </div>
 
+<div class="modal" id="upc-clear-modal">
+  <div class="card">
+    <h2>Clear this?</h2>
+    <p class="sub" id="upc-clear-text">That occurrence will never fire.</p>
+    <div class="mactions">
+      <button class="btn" id="upc-clear-cancel" type="button">Cancel</button>
+      <button class="btn danger" id="upc-clear-confirm" type="button">Clear</button>
+    </div>
+  </div>
+</div>
+
 <script>
 var sites = [], statusMap = {}, editingId = null;
 var upcomingRows = [], upcomingToday = null;
@@ -223,14 +234,32 @@ function loadUpcoming(){
     renderUpcoming();
   }).catch(function(){});
 }
+var upcClearKey = null;
 document.getElementById('upcoming').addEventListener('click', function(e){
   var btn = e.target.closest('button[data-upc]');
   if (!btn) return;
   var row = btn.closest('.upc-row');
   var key = row.dataset.key;
   var act = btn.dataset.upc;
-  if (act === 'clear' && !confirm('Clear this? That occurrence will never fire.')) return;
+  if (act === 'clear') {
+    upcClearKey = key;
+    var t = row.querySelector('.upc-title');
+    document.getElementById('upc-clear-text').textContent = (t ? t.textContent + ' — ' : '') + 'That occurrence will never fire.';
+    document.getElementById('upc-clear-modal').classList.add('show');
+    return;
+  }
   api('/api/upcoming/action', { method: 'POST', body: JSON.stringify({ key: key, action: act }) }).then(function(r){
+    if (!r.ok) { alert('Failed: ' + (r.j.error || 'unknown error')); return; }
+    loadUpcoming();
+  });
+});
+document.getElementById('upc-clear-cancel').addEventListener('click', function(){ document.getElementById('upc-clear-modal').classList.remove('show'); upcClearKey = null; });
+document.getElementById('upc-clear-modal').addEventListener('click', function(e){ if (e.target === this) { this.classList.remove('show'); upcClearKey = null; } });
+document.getElementById('upc-clear-confirm').addEventListener('click', function(){
+  var key = upcClearKey; upcClearKey = null;
+  document.getElementById('upc-clear-modal').classList.remove('show');
+  if (!key) return;
+  api('/api/upcoming/action', { method: 'POST', body: JSON.stringify({ key: key, action: 'clear' }) }).then(function(r){
     if (!r.ok) { alert('Failed: ' + (r.j.error || 'unknown error')); return; }
     loadUpcoming();
   });
