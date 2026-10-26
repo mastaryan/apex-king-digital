@@ -178,4 +178,7 @@ try { require('./stripe-bridge').mountStripeBridge(app); } catch (e) { console.e
 // Invoicing (renewal invoices, copy-to-Ryan email, review gate)
 try { require('./invoices').mountInvoices(app, authRequired); } catch (e) { console.error('invoices mount', e.message); }
 
+// Upcoming / To-Do panel (approval-gated scheduled actions)
+try { require('./upcoming').mountUpcoming(app, authRequired); } catch (e) { console.error('upcoming mount', e.message); }
+
 app.listen(PORT, () => console.log('apex-dashboard listening on ' + PORT));

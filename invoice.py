@@ -67,6 +67,8 @@ def process_invoices(sites: list, state: dict, dryrun: bool = False) -> list:
         summary = json.load(r)
     for d in summary.get("drafted", []):
         print(f"invoice draft created: {d.get('site')} (renews {d.get('renewal')})")
+    for w in summary.get("waiting", []):
+        print(f"invoice waiting approval: {w.get('site')} ({w.get('reason')})")
     out = []
     for snt in summary.get("sent", []):
         print(f"invoice sent: {snt.get('site')}")
