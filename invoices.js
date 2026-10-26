@@ -10,8 +10,12 @@
 //
 // Renewal review gate (POST /api/invoice-gate/run, called by the daily
 // reminders cron): at 45 days out a DRAFT is created and Ryan is nudged to
-// review it in the dashboard; at 30 days out an untouched draft sends
-// itself. 14-day terms, capped at the renewal date itself.
+// review it in the dashboard's Upcoming list. NOTHING sends itself anymore:
+// an invoice sends only once its Upcoming row is approved — approve at the
+// 45-day nudge and it sends on its scheduled date (30 days out); approve
+// late and it sends on the next gate run; never approved and it never sends.
+// A held or cleared row never sends. 14-day terms, capped at the renewal
+// date itself.
 //
 // Env (Render): STRIPE_SECRET_KEY, SMTP_HOST, SMTP_PORT, SMTP_USER,
 // SMTP_PASS, INVOICE_COPY_EMAIL (defaults to sizemore.ryan@gmail.com).
@@ -24,6 +28,7 @@ const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, "data", "sites.j
 const RENEWAL_PRICE = "price_1USUeuIlE5qVTzReMWr2IKhe"; // Annual Website Renewal, $100
 const COPY_EMAIL = process.env.INVOICE_COPY_EMAIL || "sizemore.ryan@gmail.com";
 const FROM = "Apex King Digital <hello@apexkingdigital.com>";
+const { loadApprovals } = require("./upcoming");
 
 // ---------- sites store (same file/format as server.js) ----------
 function loadSites() {
@@ -311,44 +316,72 @@ async function finalizeSend(site, rec) {
 }
 
 // ---------- renewal review gate ----------
+// Pure decision for one site (no side effects) — exported so the gate's
+// choices can be simulated read-only against live data before any run.
+function gateDecision(site, approvals) {
+  if (site.invoiceGateHold) return { action: "skip", reason: "held" };
+  if (!(site.clientEmail || "").trim()) return { action: "skip", reason: "no-email" };
+  const renewalIso = earliestRenewal(site);
+  if (!renewalIso) return { action: "skip", reason: "no-renewal" };
+  const days = daysUntil(renewalIso);
+  if (days === null || days > 45 || days < -7) return { action: "skip", reason: "out-of-window" };
+  const year = renewalIso.slice(0, 4);
+  const existing = (site.invoices || []).filter(r => !r.test && r.renewalDate && r.renewalDate.slice(0, 4) === year && r.status !== "deleted");
+  if (!existing.length && days <= 45 && days > 30) return { action: "draft", reason: "in draft window", renewal: renewalIso };
+  if (days <= 30) {
+    const draft = existing.find(r => r.status === "draft");
+    if (draft) {
+      const ap = approvals["gate:" + site.id + ":" + year + ":send"];
+      if (ap && ap.status === "approved") return { action: "send", reason: "approved", renewal: renewalIso, invoiceId: draft.id };
+      return { action: "wait", reason: ap && ap.status === "held" ? "held" : ap && ap.status === "cleared" ? "cleared" : "awaiting approval", renewal: renewalIso, invoiceId: draft.id };
+    }
+    if (!existing.length) return { action: "draft", reason: "late entry — draft only, waits for approval", renewal: renewalIso };
+    if (existing.some(r => ["open", "paid", "uncollectible"].includes(r.status))) {
+      return { action: "done", reason: "already sent", renewal: renewalIso, invoiceId: existing[0].id };
+    }
+    return { action: "wait", reason: "no sendable invoice", renewal: renewalIso };
+  }
+  return { action: "none", reason: "waiting for send window", renewal: renewalIso };
+}
+
+async function nudgeDraftReady(site, renewalIso) {
+  await sendMail({
+    to: COPY_EMAIL,
+    subject: "Renewal invoice draft ready — " + site.name + " (renews " + fmtDate(renewalIso) + ")",
+    text: "A draft $100 renewal invoice for " + site.name + " (" + domainOf(site) + ") was created in the dashboard.\n\nReview it in the Upcoming list — it only sends once you've approved it there (approve now and it goes on its scheduled date, " + fmtDate(renewalIso) + " renewal, due on the renewal date).\n\nDashboard: https://dashboard.apexkingdigital.com\n",
+  });
+}
+
 async function runGate() {
   const sites = loadSites();
-  const summary = { drafted: [], sent: [], errors: [] };
+  const approvals = loadApprovals();
+  const summary = { drafted: [], sent: [], waiting: [], held: [], errors: [] };
   let dirty = false;
   for (const site of sites) {
-    if (site.invoiceGateHold) { (summary.held = summary.held || []).push(site.name); continue; }
-    if (!(site.clientEmail || "").trim()) continue;
-    const renewalIso = earliestRenewal(site);
-    if (!renewalIso) continue;
-    const days = daysUntil(renewalIso);
-    if (days === null || days > 45 || days < -7) continue;
-    const year = renewalIso.slice(0, 4);
+    const d = gateDecision(site, approvals);
+    if (d.action === "skip") {
+      if (d.reason === "held") summary.held.push(site.name);
+      continue;
+    }
+    if (d.action === "none") continue;
     site.invoices = site.invoices || [];
-    const existing = site.invoices.filter(r => !r.test && r.renewalDate && r.renewalDate.slice(0, 4) === year && r.status !== "deleted");
+    const year = d.renewal.slice(0, 4);
     try {
-      if (!existing.length && days <= 45 && days > 30) {
+      if (d.action === "draft") {
         const rec = await createRenewalInvoice(site, { mode: "draft", auto: true });
         dirty = true;
-        summary.drafted.push({ site: site.name, id: rec.id, renewal: renewalIso });
-        await sendMail({
-          to: COPY_EMAIL,
-          subject: "Renewal invoice draft ready — " + site.name + " (renews " + fmtDate(renewalIso) + ")",
-          text: "A draft $100 renewal invoice for " + site.name + " (" + domainOf(site) + ") was created in the dashboard.\n\nReview or edit it any time — if it's untouched, it sends itself at 30 days out (" + fmtDate(renewalIso) + " renewal, due on the renewal date).\n\nDashboard: https://dashboard.apexkingdigital.com\n",
-        });
-      } else if (days <= 30) {
-        const draft = existing.find(r => r.status === "draft");
-        if (draft) {
-          await finalizeSend(site, draft);
-          dirty = true;
-          summary.sent.push({ site: site.name, id: draft.id, key: "invoice:" + site.id + ":" + year });
-        } else if (!existing.length) {
-          // Late entry: site first seen inside the 30-day window — create and send now.
-          const rec = await createRenewalInvoice(site, { mode: "send", auto: true });
-          dirty = true;
-          summary.sent.push({ site: site.name, id: rec.id, key: "invoice:" + site.id + ":" + year });
-        } else if (existing.some(r => ["open", "paid", "uncollectible"].includes(r.status))) {
-          summary.sent.push({ site: site.name, id: existing[0].id, key: "invoice:" + site.id + ":" + year, already: true });
-        }
+        summary.drafted.push({ site: site.name, id: rec.id, renewal: d.renewal });
+        await nudgeDraftReady(site, d.renewal);
+      } else if (d.action === "send") {
+        const draft = site.invoices.find(r => r.id === d.invoiceId);
+        if (!draft) { summary.errors.push({ site: site.name, error: "approved draft vanished before send" }); continue; }
+        await finalizeSend(site, draft);
+        dirty = true;
+        summary.sent.push({ site: site.name, id: draft.id, key: "invoice:" + site.id + ":" + year });
+      } else if (d.action === "wait") {
+        summary.waiting.push({ site: site.name, id: d.invoiceId || null, reason: d.reason });
+      } else if (d.action === "done") {
+        summary.sent.push({ site: site.name, id: d.invoiceId, key: "invoice:" + site.id + ":" + year, already: true });
       }
     } catch (e) {
       summary.errors.push({ site: site.name, error: String(e.message || e).slice(0, 200) });
@@ -428,4 +461,4 @@ function mountInvoices(app, authRequired) {
   });
 }
 
-module.exports = { mountInvoices, runGate };
+module.exports = { mountInvoices, runGate, gateDecision };
