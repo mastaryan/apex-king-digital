@@ -51,6 +51,30 @@ app.get('/api/me', (req, res) => {
   res.json({ authed: !!(t && sessions.has(t)) });
 });
 
+// ---------- TEMPORARY snapshot export (Postgres migration) ----------
+// TODO(phase1): REMOVE after the migration snapshot is pulled and verified.
+// Admin-only (same auth as /api/sites). Dumps the live disk files so the
+// migration sources live state, never the repo seed.
+app.get('/api/admin/export', authRequired, (req, res) => {
+  const dir = path.dirname(DATA_FILE);
+  const readJson = (f) => { try { return JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch { return null; } };
+  const attachments = [];
+  try {
+    const attDir = path.join(dir, 'invoice-attachments');
+    for (const f of fs.readdirSync(attDir)) {
+      const buf = fs.readFileSync(path.join(attDir, f));
+      attachments.push({ file: f, bytes: buf.length, sha256: crypto.createHash('sha256').update(buf).digest('hex'), dataBase64: buf.toString('base64') });
+    }
+  } catch (e) { /* no attachments dir */ }
+  res.json({
+    exportedAt: new Date().toISOString(),
+    sites: loadSites(),
+    approvals: readJson('approvals.json'),
+    reminderState: readJson('reminders-state.json'),
+    attachments,
+  });
+});
+
 // ---------- sites store ----------
 const SEED_FILE = path.join(__dirname, 'data', 'sites.json');
 function loadSites() {
