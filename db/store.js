@@ -125,6 +125,12 @@ async function mirrorSites(sites) {
         [s.id, [...seenInvIds]]);
     }
     // Sites deleted from the file go away in PG too (with their invoices).
+    // Invoices must go first: invoices.site_id references sites(id) with
+    // no ON DELETE CASCADE, so deleting the site first would fail the FK
+    // and roll back the whole mirror (orphaning the deleted site in PG).
+    await client.query(
+      "DELETE FROM invoices WHERE NOT (site_id = ANY($1))",
+      [[...seenSiteIds]]);
     await client.query(
       "DELETE FROM sites WHERE NOT (id = ANY($1))",
       [[...seenSiteIds]]);
