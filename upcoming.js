@@ -20,25 +20,18 @@
 const fs = require("fs");
 const path = require("path");
 
-const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, "data", "sites.json");
-const APPROVALS_FILE = path.join(path.dirname(DATA_FILE), "approvals.json");
-const REMINDER_STATE_FILE = path.join(path.dirname(DATA_FILE), "reminders-state.json");
+// ---------- stores (centralized: db/store.js) ----------
+// Files are the source of truth during dual-write; the PG mirror updates
+// after every file write when USE_POSTGRES=1.
+const store = require("./db/store");
+const loadSites = store.loadSites;
+const loadApprovals = store.loadApprovals;
+const saveApprovals = store.saveApprovals;
+const loadReminderState = store.loadReminderState;
+const saveReminderState = store.saveReminderState;
 const WINDOW_DAYS = 45;
 const REMINDER_WINDOWS = [30, 15, 7, 1];
 const RYAN_EMAIL = "info@helixkinglabs.com";
-
-function loadJson(file) { try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return {}; } }
-function saveJson(file, obj) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = file + ".tmp";
-  fs.writeFileSync(tmp, JSON.stringify(obj, null, 2));
-  fs.renameSync(tmp, file);
-}
-function loadSites() { try { return JSON.parse(fs.readFileSync(DATA_FILE, "utf8")); } catch { return []; } }
-function loadApprovals() { const a = loadJson(APPROVALS_FILE); return a && typeof a === "object" && !Array.isArray(a) ? a : {}; }
-function saveApprovals(a) { saveJson(APPROVALS_FILE, a); }
-function loadReminderState() { const s = loadJson(REMINDER_STATE_FILE); return s && typeof s === "object" && !Array.isArray(s) ? s : {}; }
-function saveReminderState(s) { saveJson(REMINDER_STATE_FILE, s); }
 
 function parseDay(iso) { const d = new Date(iso + "T00:00:00"); return isNaN(d) ? null : d; }
 function todayDay() { const t = new Date(); t.setHours(0, 0, 0, 0); return t; }
@@ -206,7 +199,7 @@ function mountUpcoming(app, authRequired) {
     res.json(loadApprovals());
   });
 
-  app.post("/api/reminders-state", authRequired, (req, res) => {
+  app.post("/api/reminders-state", authRequired, async (req, res) => {
     const body = req.body;
     if (!body || typeof body !== "object" || Array.isArray(body)) {
       return res.status(400).json({ error: "state object required" });
@@ -214,11 +207,11 @@ function mountUpcoming(app, authRequired) {
     if (JSON.stringify(body).length > 1000000) {
       return res.status(400).json({ error: "state too large" });
     }
-    saveReminderState(body);
+    await saveReminderState(body);
     res.json({ ok: true, keys: Object.keys(body).length });
   });
 
-  app.post("/api/upcoming/action", authRequired, (req, res) => {
+  app.post("/api/upcoming/action", authRequired, async (req, res) => {
     const b = req.body || {};
     const key = String(b.key || "");
     const action = String(b.action || "");
@@ -238,7 +231,7 @@ function mountUpcoming(app, authRequired) {
     }
     const status = action === "approve" ? "approved" : action === "hold" ? "held" : "cleared";
     approvals[key] = { status, updatedAt: new Date().toISOString() };
-    saveApprovals(approvals);
+    await saveApprovals(approvals);
     const updated = buildRows(sites, approvals, reminderState).find(r => r.key === key);
     res.json({ ok: true, row: updated || row });
   });

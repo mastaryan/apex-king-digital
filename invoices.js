@@ -30,16 +30,12 @@ const COPY_EMAIL = process.env.INVOICE_COPY_EMAIL || "sizemore.ryan@gmail.com";
 const FROM = "Apex King Digital <hello@apexkingdigital.com>";
 const { loadApprovals } = require("./upcoming");
 
-// ---------- sites store (same file/format as server.js) ----------
-function loadSites() {
-  try { return JSON.parse(fs.readFileSync(DATA_FILE, "utf8")); } catch { return []; }
-}
-function saveSites(sites) {
-  fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
-  const tmp = DATA_FILE + ".tmp";
-  fs.writeFileSync(tmp, JSON.stringify(sites, null, 2));
-  fs.renameSync(tmp, DATA_FILE);
-}
+// ---------- sites store (centralized: db/store.js) ----------
+// Files are the source of truth during dual-write; the PG mirror updates
+// after every file write when USE_POSTGRES=1.
+const store = require("./db/store");
+const loadSites = store.loadSites;
+const saveSites = store.saveSites;
 
 // ---------- Stripe (form-encoded, same pattern as stripe-bridge) ----------
 function formEncode(obj, prefix, out) {
@@ -387,7 +383,7 @@ async function runGate() {
       summary.errors.push({ site: site.name, error: String(e.message || e).slice(0, 200) });
     }
   }
-  if (dirty) saveSites(sites);
+  if (dirty) await saveSites(sites);
   return summary;
 }
 
@@ -403,7 +399,7 @@ function mountInvoices(app, authRequired) {
         dueIso: (req.body && req.body.dueDate) || null,
         attachment: (req.body && req.body.attachment) || null,
       });
-      saveSites(sites);
+      await saveSites(sites);
       res.json(publicRecord(rec));
     } catch (e) {
       res.status(400).json({ error: String(e.message || e) });
@@ -416,7 +412,7 @@ function mountInvoices(app, authRequired) {
     if (!site) return res.status(404).json({ error: "not found" });
     site.invoices = site.invoices || [];
     for (const rec of site.invoices) await refreshRecord(rec);
-    saveSites(sites);
+    await saveSites(sites);
     res.json(site.invoices.map(publicRecord));
   });
 
@@ -429,7 +425,7 @@ function mountInvoices(app, authRequired) {
     if (rec.status !== "draft") return res.status(400).json({ error: "only drafts can be sent" });
     try {
       await finalizeSend(site, rec);
-      saveSites(sites);
+      await saveSites(sites);
       res.json(publicRecord(rec));
     } catch (e) { res.status(400).json({ error: String(e.message || e) }); }
   });
@@ -450,7 +446,7 @@ function mountInvoices(app, authRequired) {
       } else {
         return res.status(400).json({ error: "cannot void a " + rec.status + " invoice" });
       }
-      saveSites(sites);
+      await saveSites(sites);
       res.json(publicRecord(rec));
     } catch (e) { res.status(400).json({ error: String(e.message || e) }); }
   });

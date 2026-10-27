@@ -51,49 +51,45 @@ app.get('/api/me', (req, res) => {
   res.json({ authed: !!(t && sessions.has(t)) });
 });
 
-// ---------- TEMPORARY snapshot export (Postgres migration) ----------
-// TODO(phase1): REMOVE after the migration snapshot is pulled and verified.
-// Admin-only (same auth as /api/sites). Dumps the live disk files so the
-// migration sources live state, never the repo seed.
-app.get('/api/admin/export', authRequired, (req, res) => {
-  const dir = path.dirname(DATA_FILE);
-  const readJson = (f) => { try { return JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch { return null; } };
-  const attachments = [];
+// ---------- TEMPORARY Postgres admin endpoints (Phase 1) ----------
+// TODO(phase1): REMOVE /api/admin/migrate and /api/admin/compare at cutover.
+// Admin-only (same auth as /api/sites). The migration runs ON the Render
+// service because this box cannot open direct DB connections.
+app.post('/api/admin/migrate', authRequired, async (req, res) => {
   try {
-    const attDir = path.join(dir, 'invoice-attachments');
-    for (const f of fs.readdirSync(attDir)) {
-      const buf = fs.readFileSync(path.join(attDir, f));
-      attachments.push({ file: f, bytes: buf.length, sha256: crypto.createHash('sha256').update(buf).digest('hex'), dataBase64: buf.toString('base64') });
-    }
-  } catch (e) { /* no attachments dir */ }
-  res.json({
-    exportedAt: new Date().toISOString(),
-    sites: loadSites(),
-    approvals: readJson('approvals.json'),
-    reminderState: readJson('reminders-state.json'),
-    attachments,
-  });
+    const { getPool } = require('./db/pg');
+    const { migrateSnapshot } = require('./db/migrate');
+    const pool = getPool();
+    // Schema first (idempotent), then the snapshot load.
+    const schema = fs.readFileSync(path.join(__dirname, 'db', 'schema.sql'), 'utf8');
+    await pool.query(schema);
+    const snap = req.body || {};
+    const report = await migrateSnapshot(pool, {
+      sites: snap.sites || [], approvals: snap.approvals || {},
+      reminderState: snap.reminderState || {}, attachments: snap.attachments || [],
+      cronReminderState: snap.cronReminderState || {},
+    });
+    res.json({ ok: true, report });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e).slice(0, 500) });
+  }
 });
 
-// ---------- sites store ----------
-const SEED_FILE = path.join(__dirname, 'data', 'sites.json');
-function loadSites() {
-  if (!fs.existsSync(DATA_FILE) && fs.existsSync(SEED_FILE) && DATA_FILE !== SEED_FILE) {
-    fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
-    fs.copyFileSync(SEED_FILE, DATA_FILE);
-  }
+app.get('/api/admin/compare', authRequired, async (req, res) => {
   try {
-    return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+    const { compareState } = require('./db/compare');
+    res.json(await compareState());
   } catch (e) {
-    return [];
+    res.status(500).json({ error: String(e.message || e).slice(0, 500) });
   }
-}
-function saveSites(sites) {
-  fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
-  const tmp = DATA_FILE + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(sites, null, 2));
-  fs.renameSync(tmp, DATA_FILE);
-}
+});
+
+// ---------- sites store (centralized: db/store.js) ----------
+// Files are the source of truth during dual-write; the PG mirror updates
+// after every file write when USE_POSTGRES=1 (see db/store.js).
+const store = require("./db/store");
+const loadSites = store.loadSites;
+const saveSites = store.saveSites;
 function newId(name) {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-' +
     crypto.randomBytes(3).toString('hex');
@@ -103,7 +99,7 @@ app.get('/api/sites', authRequired, (req, res) => {
   res.json(loadSites());
 });
 
-app.post('/api/sites', authRequired, (req, res) => {
+app.post('/api/sites', authRequired, async (req, res) => {
   const b = req.body || {};
   if (!b.name || !b.url) return res.status(400).json({ error: 'name and url required' });
   const sites = loadSites();
@@ -119,11 +115,11 @@ app.post('/api/sites', authRequired, (req, res) => {
     notes: String(b.notes || '').slice(0, 500),
   };
   sites.push(site);
-  saveSites(sites);
+  await saveSites(sites);
   res.json(site);
 });
 
-app.put('/api/sites/:id', authRequired, (req, res) => {
+app.put('/api/sites/:id', authRequired, async (req, res) => {
   const sites = loadSites();
   const i = sites.findIndex(s => s.id === req.params.id);
   if (i === -1) return res.status(404).json({ error: 'not found' });
@@ -131,15 +127,15 @@ app.put('/api/sites/:id', authRequired, (req, res) => {
   for (const k of ['name', 'url', 'renderServiceId', 'domainRenewal', 'hostingRenewal', 'clientEmail', 'contactName', 'notes', 'invoiceGateHold']) {
     if (b[k] !== undefined) sites[i][k] = b[k] === '' ? (k === 'domainRenewal' || k === 'hostingRenewal' ? null : '') : b[k];
   }
-  saveSites(sites);
+  await saveSites(sites);
   res.json(sites[i]);
 });
 
-app.delete('/api/sites/:id', authRequired, (req, res) => {
+app.delete('/api/sites/:id', authRequired, async (req, res) => {
   const sites = loadSites();
   const kept = sites.filter(s => s.id !== req.params.id);
   if (kept.length === sites.length) return res.status(404).json({ error: 'not found' });
-  saveSites(kept);
+  await saveSites(kept);
   res.json({ ok: true });
 });
 
