@@ -79,7 +79,7 @@ async function mirrorSites(sites) {
            contact_name = EXCLUDED.contact_name, notes = EXCLUDED.notes,
            invoice_gate_hold = EXCLUDED.invoice_gate_hold,
            updated_at = now()`,
-        [s.id, s.customer_id || null, s.name, s.url, s.render_service_id || null,
+        [s.id, s.customer_id || null, s.name, s.url, s.renderServiceId || null,
          toDate(s.domainRenewal), toDate(s.hostingRenewal),
          s.clientEmail || "", s.contactName || "", s.notes || "",
          !!s.invoiceGateHold]);
@@ -87,9 +87,14 @@ async function mirrorSites(sites) {
       const seenInvIds = new Set();
       for (const r of (s.invoices || [])) {
         seenInvIds.add(r.id);
-        let attBytes = null;
+        // Attachment bytes come from the Render disk file. If the file is
+        // unreadable but the record still names an attachment, PRESERVE
+        // the bytes already in PG (attMissing) instead of wiping them —
+        // a missing disk file must not destroy the stored copy.
+        let attBytes = null, attMissing = false;
         if (r.attachmentFile) {
-          try { attBytes = fs.readFileSync(r.attachmentFile); } catch { attBytes = null; }
+          try { attBytes = fs.readFileSync(r.attachmentFile); }
+          catch { attBytes = null; attMissing = !!r.attachmentName; }
         }
         await client.query(
           `INSERT INTO invoices (id, site_id, number, status, amount_cents, currency,
@@ -104,7 +109,8 @@ async function mirrorSites(sites) {
              due_date = EXCLUDED.due_date, recipient = EXCLUDED.recipient,
              hosted_url = EXCLUDED.hosted_url, pdf_url = EXCLUDED.pdf_url,
              attachment_name = EXCLUDED.attachment_name,
-             attachment = EXCLUDED.attachment, sent_at = EXCLUDED.sent_at,
+             attachment = CASE WHEN $18 THEN invoices.attachment ELSE EXCLUDED.attachment END,
+             sent_at = EXCLUDED.sent_at,
              last_refreshed_at = now()`,
           [r.id, s.id, r.number || null, r.status,
            r.amount != null ? r.amount : 10000, r.currency || "usd",
@@ -112,7 +118,7 @@ async function mirrorSites(sites) {
            r.recipient || null, r.hostedUrl || null, r.pdfUrl || null,
            r.attachmentName || null, attBytes,
            r.createdAt ? new Date(r.createdAt).toISOString() : new Date().toISOString(),
-           r.sentAt ? new Date(r.sentAt).toISOString() : null]);
+           r.sentAt ? new Date(r.sentAt).toISOString() : null, attMissing]);
       }
       await client.query(
         "DELETE FROM invoices WHERE site_id = $1 AND NOT (id = ANY($2))",
@@ -137,8 +143,14 @@ async function mirrorApprovals(approvals) {
   try {
     await client.query("BEGIN");
     await client.query("DELETE FROM approvals");
+    // Approvals for sites that no longer exist (stale ZZ test keys) would
+    // violate the site FK and roll back the whole mirror — skip them so
+    // one stale key can't poison legitimate approvals.
+    const { rows: siteRows } = await client.query("SELECT id FROM sites");
+    const siteIds = new Set(siteRows.map(r => r.id));
     for (const [key, v] of Object.entries(approvals)) {
       const siteId = key.split(":")[0].startsWith("gate:") ? key.split(":")[1] : key.split(":")[0];
+      if (!siteIds.has(siteId)) { console.error("pg mirrorApprovals skipping stale key (site gone):", key); continue; }
       const kind = key.startsWith("gate:") ? "gate-send" : "reminder";
       await client.query(
         `INSERT INTO approvals (key, site_id, kind, status, updated_at)
@@ -161,9 +173,13 @@ async function mirrorReminderState(state) {
   try {
     await client.query("BEGIN");
     await client.query("DELETE FROM reminder_state");
+    // Same stale-site skip as mirrorApprovals (FK on site_id).
+    const { rows: siteRows } = await client.query("SELECT id FROM sites");
+    const siteIds = new Set(siteRows.map(r => r.id));
     for (const [key, v] of Object.entries(state)) {
       const parts = key.split(":");
       const siteId = parts[0];
+      if (!siteIds.has(siteId)) { console.error("pg mirrorReminderState skipping stale key (site gone):", key); continue; }
       const kind = parts[1] || null;
       const windowDays = parts[2] ? parseInt(parts[2], 10) : null;
       const dueDate = parts[3] || null;
