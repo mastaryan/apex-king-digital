@@ -211,19 +211,4 @@ try { require('./db/audit-billing').mountAuditBilling(app, authRequired); } catc
 // Audits (Phase 2, Tracking Health Score) — PG-backed, behind login
 try { require('./db/audits').mountAudits(app, authRequired); } catch (e) { console.error('audits mount', e.message); }
 
-// ---------- TEMPORARY schema endpoint (Phase 2 money flows) ----------
-// TODO(money-flows): REMOVE after the one-time schema run on 2026-10-27.
-// Runs db/schema.sql (idempotent ALTERs + new tables) ON the Render
-// service, where the DB is reachable. Admin-only, same auth as /api/sites.
-app.post('/api/admin/audits/schema', authRequired, async (req, res) => {
-  try {
-    const { getPool } = require('./db/pg');
-    const schema = fs.readFileSync(path.join(__dirname, 'db', 'schema.sql'), 'utf8');
-    await getPool().query(schema);
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: String(e.message || e).slice(0, 500) });
-  }
-});
-
 app.listen(PORT, () => console.log('apex-dashboard listening on ' + PORT));

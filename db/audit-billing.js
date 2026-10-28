@@ -838,40 +838,6 @@ function mountAuditBilling(app, authRequired) {
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
 
-  // ---------- TEMPORARY test-audit endpoints (verification only — REMOVE before reporting done) ----------
-  app.post("/api/admin/audits/test-audit", authRequired, async (req, res) => {
-    try {
-      if (needPg(req, res)) return;
-      const pool = getPool();
-      const domain = "test-apex-" + crypto.randomBytes(4).toString("hex") + ".example";
-      const { rows: mx } = await pool.query(
-        "SELECT COALESCE(MAX(CAST(SUBSTRING(id FROM 2) AS INTEGER)), 0) AS m FROM audits WHERE id ~ '^a[0-9]+$'");
-      const id = "a" + String((mx[0].m || 0) + 1).padStart(3, "0");
-      const { maskDomain } = require("./audits");
-      await pool.query(
-        `INSERT INTO audits (id, domain, masked_domain, audit_date, audit_scope, verdict, is_thin, score, label)
-         VALUES ($1,$2,$3,'2026-10-27','test audit','test',FALSE,88,'Healthy')`,
-        [id, domain, maskDomain(domain)]);
-      await pool.query(
-        "INSERT INTO audit_findings (audit_id, kind, severity, name, text, sort_order) VALUES ($1,'issue','critical',NULL,$2,0), ($1,'issue','warning',NULL,$3,1)",
-        [id, "No consent banner exists; Meta Pixel fires pre-consent.", "Privacy policy claims no third-party trackers, but the X pixel is present."]);
-      await pool.query(
-        "INSERT INTO audit_findings (audit_id, kind, severity, name, text, sort_order) VALUES ($1,'tracker',NULL,$2,$3,2)",
-        [id, "Meta Pixel", "present, fires pre-consent"]);
-      res.json({ ok: true, id, domain });
-    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
-  });
-
-  app.delete("/api/admin/audits/test-audit/:id", authRequired, async (req, res) => {
-    try {
-      if (needPg(req, res)) return;
-      const pool = getPool();
-      const { rowCount } = await pool.query(
-        "DELETE FROM audits WHERE id = $1 AND domain LIKE 'test-apex-%.example'", [req.params.id]);
-      if (!rowCount) return res.status(404).json({ error: "test audit not found" });
-      res.json({ ok: true });
-    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
-  });
 }
 
 module.exports = { mountAuditBilling, recomputeScore, billingState };
