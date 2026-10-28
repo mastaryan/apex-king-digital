@@ -135,3 +135,115 @@ CREATE TABLE IF NOT EXISTS audit_findings (
   sort_order INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS audit_findings_audit_id_idx ON audit_findings (audit_id);
+
+-- ---------- Phase 2 — Money flows (audit/guide/fix billing) ----------
+-- Unlock lifecycle (replaces the foundation placeholder states
+-- 'locked'/'unlocked', which were never used):
+--   listed       — no purchase yet; the audit is the public sample listing
+--   audit_paid   — $25 audit paid (the uncover: paying shows the buyer
+--                   their full audit)
+--   guide_paid   — $25 fix guide paid after the audit (no retroactive
+--                   bundle discount: audit-first buyers pay the full $25)
+--   bundle_paid  — $40 audit + fix guide bundle paid upfront
+-- Guide and fix pipelines have their own status columns so a purchase,
+-- a guide delivery and a fix job can each be tracked independently.
+ALTER TABLE audits DROP CONSTRAINT IF EXISTS audits_unlock_status_check;
+ALTER TABLE audits ADD CONSTRAINT audits_unlock_status_check
+  CHECK (unlock_status IN ('listed','audit_paid','guide_paid','bundle_paid'));
+ALTER TABLE audits ADD COLUMN IF NOT EXISTS guide_status TEXT NOT NULL DEFAULT 'none'
+  CHECK (guide_status IN ('none','draft','ready','delivered'));
+ALTER TABLE audits ADD COLUMN IF NOT EXISTS fix_status TEXT NOT NULL DEFAULT 'none'
+  CHECK (fix_status IN ('none','quoted','invoiced','paid','done'));
+
+-- Purchases: the payment trail. Payment-link purchases are recorded
+-- manually in the dashboard (Stripe notifies Ryan; no webhook) — kind +
+-- amount must match the decided catalog (audit $25, guide $25, bundle $40).
+CREATE TABLE IF NOT EXISTS audit_purchases (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  audit_id     TEXT NOT NULL REFERENCES audits(id) ON DELETE CASCADE,
+  kind         TEXT NOT NULL CHECK (kind IN ('audit','guide','bundle')),
+  amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+  stripe_ref   TEXT,
+  buyer_email  CITEXT,
+  is_test      BOOLEAN NOT NULL DEFAULT FALSE,
+  note         TEXT,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS audit_purchases_audit_id_idx ON audit_purchases (audit_id);
+
+-- Fix guides: the per-audit write-up (per-finding fix steps). Drafted from
+-- the findings by template, reviewed/edited by Ryan in the dashboard,
+-- delivered by email (body + .md attachment) and unlocked on the public
+-- report page via unlock_token once delivered. Guides go out ONLY once
+-- marked ready in the dashboard — never auto-generated + auto-sent.
+CREATE TABLE IF NOT EXISTS audit_guides (
+  audit_id     TEXT PRIMARY KEY REFERENCES audits(id) ON DELETE CASCADE,
+  body         TEXT NOT NULL DEFAULT '',
+  platform     TEXT,
+  status       TEXT NOT NULL DEFAULT 'draft'
+               CHECK (status IN ('draft','ready','delivered')),
+  unlock_token TEXT UNIQUE,
+  delivered_to TEXT,
+  delivered_at TIMESTAMPTZ,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Fix quotes: done-for-you work, $100/hr, $200 minimum, estimate first.
+-- One bundled job per quote (banner + gate the stack + un-hardcode grants
+-- + policy alignment), NOT priced per finding. Work starts only after the
+-- Stripe invoice is paid.
+CREATE TABLE IF NOT EXISTS audit_fix_quotes (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  audit_id          TEXT NOT NULL REFERENCES audits(id) ON DELETE CASCADE,
+  hours             NUMERIC NOT NULL CHECK (hours > 0),
+  rate_cents        INTEGER NOT NULL DEFAULT 10000,
+  amount_cents      INTEGER NOT NULL CHECK (amount_cents >= 20000),
+  platform          TEXT,
+  access_needed     TEXT,
+  buyer_email       CITEXT,
+  stripe_invoice_id TEXT,
+  stripe_number     TEXT,
+  status            TEXT NOT NULL DEFAULT 'draft'
+                    CHECK (status IN ('draft','sent','paid','void')),
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS audit_fix_quotes_audit_id_idx ON audit_fix_quotes (audit_id);
+
+-- ---------- Phase 2 refinements (Ryan 2026-10-27 ~22:29) ----------
+-- (1) PAY FIRST, THEN SEND. Nothing deliverable (audit report or fix
+-- guide) goes out unpaid: the invoice/payment comes first, Ryan confirms
+-- payment (recorded purchase), THEN the report/guide is sent. Deliveries
+-- are recorded here so the dashboard can show payment + delivery status
+-- per audit and gate the Send actions on payment confirmed.
+CREATE TABLE IF NOT EXISTS audit_deliveries (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  audit_id     TEXT NOT NULL REFERENCES audits(id) ON DELETE CASCADE,
+  kind         TEXT NOT NULL CHECK (kind IN ('report','guide')),
+  delivered_to CITEXT,
+  delivered_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  is_test      BOOLEAN NOT NULL DEFAULT FALSE
+);
+CREATE INDEX IF NOT EXISTS audit_deliveries_audit_id_idx ON audit_deliveries (audit_id);
+
+-- Ryan's per-audit notes (contact, access, what he told them, next steps).
+ALTER TABLE audits ADD COLUMN IF NOT EXISTS notes TEXT NOT NULL DEFAULT '';
+
+-- (3) RE-RUN / REFRESH. Audits are not frozen: findings can be marked
+-- fixed as sites improve, with a note + date kept as history, and the
+-- score recomputes from OPEN issues only. New findings can be added
+-- (re-audit found something new) and fixed ones reopened.
+ALTER TABLE audit_findings ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'open'
+  CHECK (status IN ('open','fixed'));
+ALTER TABLE audit_findings ADD COLUMN IF NOT EXISTS fixed_note TEXT;
+ALTER TABLE audit_findings ADD COLUMN IF NOT EXISTS fixed_at TIMESTAMPTZ;
+CREATE TABLE IF NOT EXISTS audit_finding_events (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  audit_id   TEXT NOT NULL REFERENCES audits(id) ON DELETE CASCADE,
+  finding_id UUID REFERENCES audit_findings(id) ON DELETE SET NULL,
+  action     TEXT NOT NULL CHECK (action IN ('fixed','reopened','added','note')),
+  note       TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS audit_finding_events_audit_id_idx ON audit_finding_events (audit_id);

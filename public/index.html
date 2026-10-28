@@ -139,6 +139,18 @@ footer button:hover{color:var(--silver)}
     <h2>Audits — Tracking Health Score</h2>
     <p class="sub">Full audit data, behind your login. The public tool shows masked domains only. Tap an audit to see its findings.</p>
     <input class="search" id="audit-search" type="text" placeholder="🔍 Search audits…" autocomplete="off" />
+    <details style="margin-bottom:14px">
+      <summary style="cursor:pointer;color:var(--dim);font-size:14px">+ Add a new audit (a new site joins the list)</summary>
+      <div style="margin-top:10px">
+        <div class="frow">
+          <div class="field"><label>Domain *</label><input id="aa-domain" placeholder="example.com" /></div>
+          <div class="field"><label>Audit date</label><input id="aa-date" type="date" /></div>
+        </div>
+        <div class="field"><label>Scope</label><input id="aa-scope" placeholder="tracking, consent" /></div>
+        <div class="mactions" style="justify-content:flex-start"><button class="btn primary" id="aa-add" type="button">Add audit</button></div>
+        <p class="note">Findings are added from the audit's card after it is created. New audits reach the public masked side after the next masked export + Drop.</p>
+      </div>
+    </details>
     <div class="list" id="audit-list"></div>
     <p class="no-results" id="audit-no-results">No audits match your search.</p>
   </div>
@@ -490,6 +502,16 @@ function auditScoreChip(a){
   var cls = a.score >= 85 ? 'paid' : (a.score >= 70 ? 'open' : 'void');
   return '<span class="chip ' + cls + '">' + a.score + '/100 · ' + esc(a.label) + '</span>';
 }
+function auditMoneyChips(a){
+  var h = '';
+  if (a.unlockStatus && a.unlockStatus !== 'listed') {
+    var lbl = { audit_paid: 'audit paid', guide_paid: 'guide paid', bundle_paid: 'bundle paid' }[a.unlockStatus] || a.unlockStatus;
+    h += ' <span class="chip paid">' + esc(lbl) + '</span>';
+  }
+  if (a.guideStatus && a.guideStatus !== 'none') h += ' <span class="chip open">guide: ' + esc(a.guideStatus) + '</span>';
+  if (a.fixStatus && a.fixStatus !== 'none') h += ' <span class="chip held">fix: ' + esc(a.fixStatus) + '</span>';
+  return h;
+}
 function renderAudits(){
   var q = document.getElementById('audit-search').value.trim().toLowerCase();
   var list = document.getElementById('audit-list');
@@ -501,7 +523,7 @@ function renderAudits(){
     var div = document.createElement('div');
     div.className = 'site'; div.dataset.id = a.id;
     div.innerHTML =
-      '<button class="site-head">' + esc(a.domain) + ' ' + auditScoreChip(a) + '<span class="chev">▼</span></button>' +
+      '<button class="site-head">' + esc(a.domain) + ' ' + auditScoreChip(a) + auditMoneyChips(a) + '<span class="chev">▼</span></button>' +
       '<div class="site-body">' +
         '<div class="row"><span class="k">Audited</span><span class="v">' + esc(a.date || '—') + '</span></div>' +
         '<div class="row"><span class="k">Scope</span><span class="v" style="font-weight:400;text-align:right">' + esc(a.scope || '—') + '</span></div>' +
@@ -513,6 +535,80 @@ function renderAudits(){
   });
   document.getElementById('audit-no-results').style.display = visible ? 'none' : 'block';
 }
+/* ---------- audits: one card = one site's complete backend ----------
+   Findings (fix / reopen / add, with history) + payment & unlock +
+   report send (pay first, then send) + fix guide (draft / review /
+   ready / send) + fix quotes + notes. All money actions run through
+   /api/audits/:id/billing and friends, behind login. */
+function auditFindHtml(i){
+  var cls = i.severity === 'critical' ? 'void' : (i.severity === 'warning' ? 'open' : 'test');
+  return '<div class="audit-find"><span class="chip ' + cls + '">' + esc(i.severity) + '</span><p>' + esc(i.text) + '</p></div>';
+}
+function billingHtml(b){
+  var a = b.audit, h = '';
+  h += '<div class="audit-sec">Payment &amp; unlock</div>';
+  h += '<div class="row"><span class="k">Status</span><span class="v">' + esc(a.unlockStatus) + ' · guide ' + esc(a.guideStatus) + ' · fix ' + esc(a.fixStatus) + '</span></div>';
+  if (b.purchases.length) {
+    b.purchases.forEach(function(p){
+      h += '<div class="row"><span class="k">' + esc(p.kind) + ' — $' + (p.amount_cents / 100).toFixed(2) + (p.is_test ? ' · test' : '') + '</span><span class="v" style="font-weight:400">' + esc(p.buyer_email || '—') + (p.stripe_ref ? ' · ' + esc(p.stripe_ref) : '') + '</span></div>';
+    });
+  } else {
+    h += '<p class="note">No purchases recorded. Audit $25 · guide $25 · bundle $40 — record the payment here once Stripe confirms it.</p>';
+  }
+  h += '<div class="frow"><div class="field"><label>Record a purchase</label><select data-field="p-kind"><option value="audit">Audit — $25</option><option value="guide">Fix guide — $25</option><option value="bundle">Bundle — $40</option></select></div>' +
+    '<div class="field"><label>Stripe ref (optional)</label><input data-field="p-ref" placeholder="pi_… / cs_…" /></div>' +
+    '<div class="field"><label>Buyer email</label><input data-field="p-email" placeholder="buyer@example.com" /></div></div>' +
+    '<div class="mactions" style="justify-content:flex-start"><button class="btn sm primary" data-bact="record-purchase" type="button">Record purchase</button></div>';
+  h += '<div class="audit-sec">Report — pay first, then send</div>';
+  var lastReport = (b.deliveries || []).filter(function(d){ return d.kind === 'report'; })[0];
+  h += '<p class="note">' + (lastReport ? 'Last sent ' + esc(lastReport.delivered_at.slice(0, 10)) + ' to ' + esc(lastReport.delivered_to || '—') + (lastReport.is_test ? ' (test)' : '') + '.' : 'Report not sent yet. It goes out only after the audit (or bundle) payment is recorded.') + '</p>' +
+    '<div class="mactions" style="justify-content:flex-start"><button class="btn sm primary" data-bact="send-report" type="button">Send report to buyer</button><button class="btn sm" data-bact="send-report-test" type="button">Send test to me</button></div>';
+  h += '<div class="audit-sec">Fix guide — $25 (or $40 bundled)</div>';
+  var g = b.guide;
+  h += '<p class="note">Status: ' + esc(g ? g.status : 'none') + (g && g.delivered_to ? ' · delivered to ' + esc(g.delivered_to) : '') + '. Drafts are generated from the findings; nothing goes out until you mark it ready, and the guide sends only after its purchase is recorded.</p>' +
+    '<div class="field"><label>Guide draft (edit before marking ready)</label><textarea data-field="guide-body" rows="8" placeholder="Generate a draft first…"></textarea></div>' +
+    '<div class="frow"><div class="field"><label>Platform</label><input data-field="guide-platform" placeholder="Shopify / WordPress / custom" /></div></div>' +
+    '<div class="mactions" style="justify-content:flex-start;flex-wrap:wrap"><button class="btn sm" data-bact="guide-generate" type="button">Generate draft</button><button class="btn sm" data-bact="guide-save" type="button">Save edits</button><button class="btn sm primary" data-bact="guide-ready" type="button">Mark ready</button><button class="btn sm primary" data-bact="guide-send" type="button">Send guide to buyer</button><button class="btn sm" data-bact="guide-send-test" type="button">Send test to me</button></div>';
+  h += '<div class="audit-sec">Fix quote — $100/hr, $200 minimum</div>';
+  if (b.quotes.length) {
+    b.quotes.forEach(function(q){
+      h += '<div class="invrow"><span class="chip ' + esc(q.status) + '">' + esc(q.status) + '</span><span>$' + (q.amount_cents / 100).toFixed(2) + ' · ' + esc(q.hours) + 'h · ' + esc(q.platform || '—') + ' · ' + esc(q.buyer_email || '—') + (q.stripe_number ? ' · ' + esc(q.stripe_number) : '') + '</span><span class="sp">' +
+        (q.status === 'draft' ? '<button class="btn sm primary" data-bact="quote-send" data-qid="' + esc(q.id) + '" type="button">Send invoice</button>' : '') +
+        ((q.status === 'draft' || q.status === 'sent') ? '<button class="btn sm danger" data-bact="quote-void" data-qid="' + esc(q.id) + '" type="button">Void</button>' : '') +
+        '</span></div>';
+    });
+  } else {
+    h += '<p class="note">No fix quotes yet. Work starts only after the invoice is paid.</p>';
+  }
+  h += '<div class="frow"><div class="field"><label>Hours (estimate)</label><input data-field="q-hours" type="number" min="0.5" step="0.5" placeholder="3" /></div>' +
+    '<div class="field"><label>Platform</label><input data-field="q-platform" placeholder="Shopify / custom" /></div>' +
+    '<div class="field"><label>Buyer email</label><input data-field="q-email" placeholder="buyer@example.com" /></div></div>' +
+    '<div class="field"><label>Access needed</label><textarea data-field="q-access" rows="2" placeholder="GTM + theme access, checkout…"></textarea></div>' +
+    '<div class="mactions" style="justify-content:flex-start"><button class="btn sm primary" data-bact="quote-create" type="button">Create draft invoice</button><button class="btn sm" data-bact="quote-create-test" type="button">Create test (to me)</button></div>';
+  h += '<div class="audit-sec">Notes</div>' +
+    '<div class="field"><textarea data-field="notes" rows="2" placeholder="What you told them, access they gave, next steps…">' + esc(a.notes || '') + '</textarea></div>' +
+    '<div class="mactions" style="justify-content:flex-start"><button class="btn sm" data-bact="save-notes" type="button">Save notes</button></div>';
+  return h;
+}
+function historyHtml(events){
+  if (!events.length) return '<p class="note">No re-audit history yet.</p>';
+  return events.map(function(e){
+    return '<div class="row"><span class="k">' + esc(e.action) + ' · ' + esc(String(e.created_at || '').slice(0, 10)) + '</span><span class="v" style="font-weight:400;text-align:right">' + esc((e.text || '') + (e.note ? ' — ' + e.note : '')) + '</span></div>';
+  }).join('');
+}
+function refreshBillingBox(box, auditId){
+  var bb = box.querySelector('.audit-billing');
+  if (!bb) return;
+  api('/api/audits/' + auditId + '/billing').then(function(br){
+    if (!br.ok) { bb.innerHTML = '<p class="note">Could not load billing state.</p>'; return; }
+    bb.innerHTML = billingHtml(br.j);
+    api('/api/audits/' + auditId + '/guide').then(function(gr){
+      var ta = box.querySelector('[data-field="guide-body"]');
+      var pf = box.querySelector('[data-field="guide-platform"]');
+      if (ta && gr.ok && gr.j.exists) { ta.value = gr.j.body || ''; if (pf) pf.value = gr.j.platform || ''; }
+    }).catch(function(){});
+  }).catch(function(){});
+}
 function loadAuditDetail(a, bodyEl){
   var box = bodyEl.querySelector('.audit-detail');
   if (!box || box.dataset.loaded === '1') return;
@@ -522,11 +618,19 @@ function loadAuditDetail(a, bodyEl){
     if (!r.ok) { box.innerHTML = '<p class="note">Could not load findings.</p>'; box.dataset.loaded = '0'; return; }
     var d = r.j;
     var h = '';
-    if (d.issues.length) {
+    var open = d.issues.filter(function(i){ return i.status !== 'fixed'; });
+    var fixed = d.issues.filter(function(i){ return i.status === 'fixed'; });
+    if (open.length) {
       h += '<div class="audit-sec">Findings — verbatim from the audit</div>';
-      d.issues.forEach(function(i){
-        var cls = i.severity === 'critical' ? 'void' : (i.severity === 'warning' ? 'open' : 'test');
-        h += '<div class="audit-find"><span class="chip ' + cls + '">' + esc(i.severity) + '</span><p>' + esc(i.text) + '</p></div>';
+      open.forEach(function(i){
+        h += auditFindHtml(i) +
+          '<div style="display:flex;gap:8px;margin:2px 0 10px"><input style="flex:1;background:#0e0e11;border:1px solid var(--line);border-radius:8px;color:var(--silver);font-size:13px;padding:7px 10px;font-family:inherit" placeholder="What changed? (kept with the fix)" data-fnote="' + esc(i.id) + '" /><button class="btn sm" data-bact="fix-finding" data-fid="' + esc(i.id) + '" type="button">✓ Mark fixed</button></div>';
+      });
+    }
+    if (fixed.length) {
+      h += '<div class="audit-sec">Fixed — score already recomputed without these</div>';
+      fixed.forEach(function(i){
+        h += '<div class="audit-find" style="opacity:.65"><span class="chip sent">fixed' + (i.fixedAt ? ' · ' + esc(i.fixedAt) : '') + '</span><p>' + esc(i.text) + (i.fixedNote ? '<br><span style="color:var(--dim)">— ' + esc(i.fixedNote) + '</span>' : '') + '</p><button class="btn sm" data-bact="reopen-finding" data-fid="' + esc(i.id) + '" type="button">Reopen</button></div>';
       });
     }
     if (d.trackers.length) {
@@ -535,10 +639,113 @@ function loadAuditDetail(a, bodyEl){
         h += '<div class="audit-find"><p><b>' + esc(t.name) + '</b> — ' + esc(t.status) + '</p></div>';
       });
     }
-    if (!h) h = '<p class="note">No findings recorded.</p>';
+    if (!open.length && !fixed.length && !d.trackers.length) h = '<p class="note">No findings recorded.</p>';
+    h += '<div class="audit-sec">Add a finding (re-audit)</div>' +
+      '<div class="frow"><div class="field"><label>Severity</label><select data-field="af-sev"><option value="critical">critical</option><option value="warning">warning</option><option value="info">info</option></select></div>' +
+      '<div class="field" style="flex:3"><label>Finding text</label><input data-field="af-text" placeholder="What the re-audit found…" /></div></div>' +
+      '<div class="mactions" style="justify-content:flex-start"><button class="btn sm primary" data-bact="add-finding" type="button">Add finding</button></div>';
+    h += '<div class="audit-sec">Re-audit history</div><div data-history><p class="note">Loading…</p></div>';
+    h += '<div class="audit-billing"><p class="note">Loading payment, guide &amp; fix state…</p></div>';
     box.innerHTML = h;
+    refreshBillingBox(box, a.id);
+    api('/api/audits/' + a.id + '/history').then(function(hr){
+      var hb = box.querySelector('[data-history]');
+      if (hb && hr.ok) hb.innerHTML = historyHtml(hr.j.events || []);
+    }).catch(function(){});
   }).catch(function(){ box.innerHTML = '<p class="note">Could not load findings.</p>'; box.dataset.loaded = '0'; });
 }
+function reloadAuditCard(auditId){
+  api('/api/audits/' + auditId).then(function(r){
+    if (r.ok) {
+      var idx = audits.findIndex(function(x){ return x.id === auditId; });
+      if (idx !== -1) { audits[idx].score = r.j.score; audits[idx].label = r.j.label; audits[idx].unlockStatus = r.j.unlockStatus; audits[idx].guideStatus = r.j.guideStatus; audits[idx].fixStatus = r.j.fixStatus; }
+      renderAudits();
+    }
+    // Re-open the card after the list re-renders.
+    var card2 = document.querySelector('#audit-list .site[data-id="' + auditId + '"]');
+    if (card2) {
+      card2.classList.add('open');
+      var a2 = audits.find(function(x){ return x.id === auditId; });
+      if (a2) loadAuditDetail(a2, card2.querySelector('.site-body'));
+    }
+  }).catch(function(){});
+}
+document.getElementById('audit-list').addEventListener('click', function(e){
+  var btn = e.target.closest('button[data-bact]');
+  if (!btn) return;
+  var card = btn.closest('.site');
+  if (!card) return;
+  var auditId = card.dataset.id;
+  var box = card.querySelector('.audit-detail');
+  var val = function(f){ var el = card.querySelector('[data-field="' + f + '"]'); return el ? el.value.trim() : ''; };
+  var act = btn.dataset.bact;
+  var done = function(msg, refresh){
+    if (msg) alert(msg);
+    if (refresh !== false) reloadAuditCard(auditId);
+  };
+  var fail = function(r){ alert('Failed: ' + ((r && r.j && r.j.error) || 'unknown error')); };
+  if (act === 'fix-finding') {
+    var note = (card.querySelector('[data-fnote="' + btn.dataset.fid + '"]') || {}).value || '';
+    api('/api/audits/' + auditId + '/findings/' + btn.dataset.fid + '/fix', { method: 'POST', body: JSON.stringify({ note: note }) })
+      .then(function(r){ r.ok ? done('Marked fixed — score recomputed.') : fail(r); });
+  } else if (act === 'reopen-finding') {
+    api('/api/audits/' + auditId + '/findings/' + btn.dataset.fid + '/reopen', { method: 'POST', body: JSON.stringify({}) })
+      .then(function(r){ r.ok ? done('Reopened — score recomputed.') : fail(r); });
+  } else if (act === 'add-finding') {
+    api('/api/audits/' + auditId + '/findings', { method: 'POST', body: JSON.stringify({ severity: val('af-sev'), text: val('af-text') }) })
+      .then(function(r){ r.ok ? done('Finding added — score recomputed.') : fail(r); });
+  } else if (act === 'record-purchase') {
+    api('/api/audits/' + auditId + '/purchases', { method: 'POST', body: JSON.stringify({ kind: val('p-kind'), stripe_ref: val('p-ref'), buyer_email: val('p-email') }) })
+      .then(function(r){ r.ok ? done('Purchase recorded — ' + r.j.unlockStatus + '.') : fail(r); });
+  } else if (act === 'send-report' || act === 'send-report-test') {
+    api('/api/audits/' + auditId + '/report/send', { method: 'POST', body: JSON.stringify({ test: act === 'send-report-test' }) })
+      .then(function(r){ r.ok ? done(act === 'send-report-test' ? 'Test report sent to you.' : 'Report sent to ' + r.j.deliveredTo + '.') : fail(r); });
+  } else if (act === 'guide-generate') {
+    api('/api/audits/' + auditId + '/guide/draft', { method: 'POST', body: JSON.stringify({}) })
+      .then(function(r){
+        if (!r.ok) return fail(r);
+        var ta = card.querySelector('[data-field="guide-body"]'); if (ta) ta.value = r.j.body || '';
+        var pf = card.querySelector('[data-field="guide-platform"]'); if (pf) pf.value = r.j.platform || '';
+        refreshBillingBox(box, auditId);
+      });
+  } else if (act === 'guide-save') {
+    api('/api/audits/' + auditId + '/guide', { method: 'PUT', body: JSON.stringify({ body: val('guide-body'), platform: val('guide-platform') }) })
+      .then(function(r){ r.ok ? done('Guide draft saved.', false) : fail(r); });
+  } else if (act === 'guide-ready') {
+    api('/api/audits/' + auditId + '/guide/ready', { method: 'POST', body: JSON.stringify({}) })
+      .then(function(r){ r.ok ? done('Guide marked ready — it can go out once the guide purchase is recorded.') : fail(r); });
+  } else if (act === 'guide-send' || act === 'guide-send-test') {
+    api('/api/audits/' + auditId + '/guide/send', { method: 'POST', body: JSON.stringify({ test: act === 'guide-send-test' }) })
+      .then(function(r){ r.ok ? done(act === 'guide-send-test' ? 'Test guide sent to you.' : 'Guide sent to ' + r.j.deliveredTo + '.') : fail(r); });
+  } else if (act === 'quote-create' || act === 'quote-create-test') {
+    api('/api/audits/' + auditId + '/fix-quotes', { method: 'POST', body: JSON.stringify({ hours: parseFloat(val('q-hours')), platform: val('q-platform'), access_needed: val('q-access'), buyer_email: val('q-email'), test: act === 'quote-create-test' }) })
+      .then(function(r){ r.ok ? done('Draft fix invoice created — $' + (r.j.quote.amount_cents / 100).toFixed(2) + '. Send it from the quote list.') : fail(r); });
+  } else if (act === 'quote-send') {
+    api('/api/audits/' + auditId + '/fix-quotes/' + btn.dataset.qid + '/send', { method: 'POST', body: JSON.stringify({}) })
+      .then(function(r){ r.ok ? done('Fix invoice sent.') : fail(r); });
+  } else if (act === 'quote-void') {
+    if (!confirm('Void this fix invoice? This cannot be undone.')) return;
+    api('/api/audits/' + auditId + '/fix-quotes/' + btn.dataset.qid + '/void', { method: 'POST', body: JSON.stringify({}) })
+      .then(function(r){ r.ok ? done('Fix invoice voided.') : fail(r); });
+  } else if (act === 'save-notes') {
+    api('/api/audits/' + auditId + '/notes', { method: 'POST', body: JSON.stringify({ notes: val('notes') }) })
+      .then(function(r){ r.ok ? done('Notes saved.', false) : fail(r); });
+  }
+});
+document.getElementById('aa-add').addEventListener('click', function(){
+  var domain = document.getElementById('aa-domain').value.trim();
+  var date = document.getElementById('aa-date').value || null;
+  var scope = document.getElementById('aa-scope').value.trim();
+  if (!domain) { alert('Domain is required.'); return; }
+  api('/api/audits', { method: 'POST', body: JSON.stringify({ domain: domain, audit_date: date, audit_scope: scope }) })
+    .then(function(r){
+      if (!r.ok) { alert('Failed: ' + (r.j.error || 'unknown error')); return; }
+      document.getElementById('aa-domain').value = '';
+      document.getElementById('aa-scope').value = '';
+      loadAudits();
+      alert('Audit ' + r.j.id + ' created for ' + domain + ' — open its card to add findings.');
+    });
+});
 function loadAudits(){
   api('/api/audits').then(function(r){
     if (!r.ok) return;

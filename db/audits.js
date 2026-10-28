@@ -50,6 +50,7 @@ function rowToAudit(r) {
     date: r.audit_date ? r.audit_date.toISOString().slice(0, 10) : null,
     scope: r.audit_scope, verdict: r.verdict, thin: r.is_thin,
     score: r.score, label: r.label, unlockStatus: r.unlock_status,
+    guideStatus: r.guide_status, fixStatus: r.fix_status,
     counts: { critical: r.critical, warning: r.warning, info: r.info },
     trackers: r.trackers,
   };
@@ -64,10 +65,10 @@ async function listAudits(pool, q) {
   }
   const { rows } = await pool.query(
     `SELECT a.id, a.domain, a.masked_domain, a.audit_date, a.audit_scope, a.verdict,
-            a.is_thin, a.score, a.label, a.unlock_status,
-            COUNT(f.id) FILTER (WHERE f.kind = 'issue' AND f.severity = 'critical')::int AS critical,
-            COUNT(f.id) FILTER (WHERE f.kind = 'issue' AND f.severity = 'warning')::int AS warning,
-            COUNT(f.id) FILTER (WHERE f.kind = 'issue' AND f.severity = 'info')::int AS info,
+            a.is_thin, a.score, a.label, a.unlock_status, a.guide_status, a.fix_status,
+            COUNT(f.id) FILTER (WHERE f.kind = 'issue' AND f.severity = 'critical' AND f.status = 'open')::int AS critical,
+            COUNT(f.id) FILTER (WHERE f.kind = 'issue' AND f.severity = 'warning' AND f.status = 'open')::int AS warning,
+            COUNT(f.id) FILTER (WHERE f.kind = 'issue' AND f.severity = 'info' AND f.status = 'open')::int AS info,
             COUNT(f.id) FILTER (WHERE f.kind = 'tracker')::int AS trackers
      FROM audits a LEFT JOIN audit_findings f ON f.audit_id = a.id
      ${where}
@@ -80,24 +81,32 @@ async function listAudits(pool, q) {
 async function getAudit(pool, id) {
   const { rows } = await pool.query(
     `SELECT id, domain, masked_domain, audit_date, audit_scope, verdict,
-            is_thin, score, label, unlock_status
+            is_thin, score, label, unlock_status, guide_status, fix_status, notes
      FROM audits WHERE id = $1`,
     [id]);
   if (!rows.length) return null;
   const a = rows[0];
   const { rows: fr } = await pool.query(
-    `SELECT kind, severity, name, text FROM audit_findings
+    `SELECT id, kind, severity, name, text, status, fixed_note, fixed_at
+     FROM audit_findings
      WHERE audit_id = $1 ORDER BY sort_order`,
     [id]);
-  const issues = fr.filter(r => r.kind === "issue").map(r => ({ severity: r.severity, text: r.text }));
-  const trackers = fr.filter(r => r.kind === "tracker").map(r => ({ name: r.name, status: r.text }));
+  const issues = fr.filter(r => r.kind === "issue").map(r => ({
+    id: r.id, severity: r.severity, text: r.text, status: r.status,
+    fixedNote: r.fixed_note,
+    fixedAt: r.fixed_at ? r.fixed_at.toISOString().slice(0, 10) : null,
+  }));
+  const trackers = fr.filter(r => r.kind === "tracker").map(r => ({ id: r.id, name: r.name, status: r.text }));
   const counts = { critical: 0, warning: 0, info: 0 };
-  for (const i of issues) if (counts[i.severity] !== undefined) counts[i.severity]++;
+  for (const i of issues) {
+    if (i.status === "open" && counts[i.severity] !== undefined) counts[i.severity]++;
+  }
   return {
     id: a.id, domain: a.domain, maskedDomain: a.masked_domain,
     date: a.audit_date ? a.audit_date.toISOString().slice(0, 10) : null,
     scope: a.audit_scope, verdict: a.verdict, thin: a.is_thin,
     score: a.score, label: a.label, unlockStatus: a.unlock_status,
+    guideStatus: a.guide_status, fixStatus: a.fix_status, notes: a.notes,
     counts, trackers, issues,
   };
 }
