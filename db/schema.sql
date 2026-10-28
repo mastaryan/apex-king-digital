@@ -99,3 +99,39 @@ CREATE TABLE IF NOT EXISTS reminder_state (
   updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS reminder_state_site_id_idx ON reminder_state (site_id);
+
+-- ---------- Phase 2 — Audits (Tracking Health Score) ----------
+-- Audited vendors are NOT customers: no invented customer records, no
+-- link to customers/sites unless a real link exists. Full data (real
+-- domains) lives here, behind Ryan's login; the public tool gets only a
+-- masked build-time export (see tracking-health-score/mask_data.py).
+CREATE TABLE IF NOT EXISTS audits (
+  id            TEXT PRIMARY KEY,  -- opaque id, e.g. 'a001' — stable across rebuilds; also the public tool's selection key (masked domains collide: bi******.com x3, pe******.com x4)
+  domain        CITEXT NOT NULL,
+  masked_domain TEXT NOT NULL,
+  audit_date    DATE,
+  audit_scope   TEXT,
+  verdict       TEXT,
+  is_thin       BOOLEAN NOT NULL DEFAULT FALSE,
+  score         INTEGER,           -- NULL when thin (limited audit)
+  label         TEXT NOT NULL,     -- Healthy | Fair | Needs Attention | Limited audit
+  -- Money-flow placeholder (NOT built — needs Ryan's pricing calls):
+  -- charge-to-uncover / fix quotes / invoice-to-start plug in here.
+  unlock_status TEXT NOT NULL DEFAULT 'listed'
+                CHECK (unlock_status IN ('listed','locked','unlocked')),
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS audits_domain_unique ON audits (domain);
+CREATE INDEX IF NOT EXISTS audits_score_idx ON audits (score);
+
+CREATE TABLE IF NOT EXISTS audit_findings (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  audit_id   TEXT NOT NULL REFERENCES audits(id) ON DELETE CASCADE,
+  kind       TEXT NOT NULL CHECK (kind IN ('issue','tracker')),
+  severity   TEXT,              -- issues: critical|warning|info; trackers: NULL
+  name       TEXT,              -- tracker name; NULL for issues
+  text       TEXT NOT NULL,     -- issue text, or tracker status string
+  sort_order INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS audit_findings_audit_id_idx ON audit_findings (audit_id);
