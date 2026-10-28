@@ -1189,7 +1189,9 @@ function loadEmailStats(homeOnly){
     var d = r.j;
     var nEl = document.getElementById('home-email-n'), sEl = document.getElementById('home-email-s');
     if (nEl) {
-      if (d.resend && d.resend.today && d.resend.today.sent !== null) { nEl.textContent = d.resend.today.sent; sEl.textContent = 'sent today · Resend'; }
+      // Headline = sent THIS month (resets on the 1st), not today and
+      // never all-time — that's where Ryan stands against the allowance.
+      if (d.resend && d.resend.month && d.resend.month.sent !== null) { nEl.textContent = d.resend.month.sent; sEl.textContent = 'sent in ' + (d.monthLabel || 'this month') + ' · Resend'; }
       else { nEl.textContent = '—'; sEl.textContent = d.resendConfigured ? 'Resend connected · no data' : 'Resend not connected'; }
     }
     if (homeOnly) return;
@@ -1198,15 +1200,15 @@ function loadEmailStats(homeOnly){
     var h = '';
     if (d.resend) {
       h += '<div class="row"><span class="k">Resend — sent today (HKL + Apex)</span><span class="v">' + num(d.resend.today.sent) + '</span></div>' +
-        '<div class="row"><span class="k">Resend — sent this month</span><span class="v">' + num(d.resend.month.sent) + '</span></div>' +
+        '<div class="row"><span class="k">Resend — sent in ' + esc(d.monthLabel || 'this month') + '</span><span class="v">' + num(d.resend.month.sent) + '</span></div>' +
         '<div class="row"><span class="k">Resend — delivered / bounced / failed (today)</span><span class="v">' + num(d.resend.today.delivered) + ' / ' + num(d.resend.today.bounced) + ' / ' + num(d.resend.today.failed) + '</span></div>' +
-        '<p class="note">Resend account-level — HKL + Apex API sends combined (one shared Resend account).</p>';
+        '<p class="note">Resend account-level — HKL + Apex API sends combined (one shared Resend account). Counts reset on the 1st of each month' + (d.resetsOn ? ' (next reset ' + esc(d.resetsOn) + ')' : '') + ' — this is ' + esc(d.monthLabel || 'this month') + '\'s total, not all-time.</p>';
     } else {
       h += '<p class="note">' + (d.resendConfigured ? 'Resend is connected but the stats call failed' + (d.resendError ? ': ' + esc(d.resendError) : '') + '.' : 'Resend is not connected to the dashboard yet — add RESEND_API_KEY in the Render env to see live counts here.') + '</p>';
     }
     h += '<div class="audit-sec">Dashboard sends (via MXroute SMTP — not in the Resend numbers)</div>' +
-      '<div class="row"><span class="k">Audit emails today / this month</span><span class="v">' + d.dashboard.auditEmails.today + ' / ' + d.dashboard.auditEmails.month + '</span></div>' +
-      '<div class="row"><span class="k">Invoice emails today / this month</span><span class="v">' + d.dashboard.invoiceEmails.today + ' / ' + d.dashboard.invoiceEmails.month + '</span></div>' +
+      '<div class="row"><span class="k">Audit emails today / in ' + esc(d.monthLabel || 'this month') + '</span><span class="v">' + d.dashboard.auditEmails.today + ' / ' + d.dashboard.auditEmails.month + '</span></div>' +
+      '<div class="row"><span class="k">Invoice emails today / in ' + esc(d.monthLabel || 'this month') + '</span><span class="v">' + d.dashboard.invoiceEmails.today + ' / ' + d.dashboard.invoiceEmails.month + '</span></div>' +
       '<div class="row"><span class="k">Monthly limit</span><span class="v tbd">—</span></div>' +
       '<p class="note">Resend has no API for the account\'s monthly quota — check the Resend dashboard for the limit on this account.</p>';
     box.innerHTML = h;

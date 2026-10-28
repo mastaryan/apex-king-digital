@@ -532,6 +532,11 @@ function mountHome(app, authRequired) {
       if (needPg(req, res)) return;
       const pool = getPool();
       const today = nyToday(), monthStart = nyMonthStart();
+      // MONTHLY RESET (Ryan 2026-10-28): every count here is for the
+      // CURRENT month only — the 1st to today — never an all-time total.
+      // The month label + reset date ride along so the card can say so.
+      const monthLabel = new Date().toLocaleDateString("en-US", { timeZone: "America/New_York", month: "long", year: "numeric" });
+      const resetsOn = addMonthsISO(monthStart, 1);
       // Dashboard's own sends, from PG (these go out via MXroute SMTP,
       // not Resend — so they are NOT in the Resend numbers below).
       const { rows: d } = await pool.query(
@@ -547,6 +552,9 @@ function mountHome(app, authRequired) {
       const out = {
         resendConfigured: !!(process.env.RESEND_API_KEY || ""),
         resend: null, resendError: null,
+        monthLabel, resetsOn,
+        // Headline number = this month's sends, resetting on the 1st.
+        // The account's all-time total is never shown here.
         dashboard: {
           auditEmails: { today: d[0].today, month: d[0].month },
           invoiceEmails: { today: iv[0].today, month: iv[0].month },

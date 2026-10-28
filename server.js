@@ -224,10 +224,13 @@ try { require('./upcoming').mountUpcoming(app, authRequired); } catch (e) { cons
 // orders list would be swallowed as id="orders".
 try { require('./db/audit-billing').mountAuditBilling(app, authRequired); } catch (e) { console.error('audit billing mount', e.message); }
 
+// Card home (2026-10-28): 9 cards, one per backend piece.
+// Mounted BEFORE mountAudits on purpose: GET /api/audits/queues must
+// register before GET /api/audits/:id, or the queues list would be
+// swallowed as id="queues" (404).
+try { require('./db/home').mountHome(app, authRequired); } catch (e) { console.error('home mount', e.message); }
+
 // Audits (Phase 2, Tracking Health Score) — PG-backed, behind login
 try { require('./db/audits').mountAudits(app, authRequired); } catch (e) { console.error('audits mount', e.message); }
-
-// Card home (2026-10-28): 9 cards, one per backend piece
-try { require('./db/home').mountHome(app, authRequired); } catch (e) { console.error('home mount', e.message); }
 
 app.listen(PORT, () => console.log('apex-dashboard listening on ' + PORT));
