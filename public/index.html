@@ -108,6 +108,10 @@ footer button:hover{color:var(--silver)}
 .upc-title{font-weight:700;font-size:15px}
 .upc-detail{font-size:13px;color:var(--dim)}
 .upc-acts{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.upc-done{display:inline-block;padding:5px 13px;font-size:12.5px;font-weight:700;border-radius:999px;background:rgba(52,209,123,.16);color:var(--green);border:1px solid rgba(52,209,123,.35)}
+.upc-done.held{background:rgba(233,185,73,.16);color:var(--amber);border-color:rgba(233,185,73,.35)}
+#upc-toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(16px);background:#1c1c22;border:1px solid var(--gold);color:#fff;font-weight:700;font-size:14px;padding:12px 20px;border-radius:999px;opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;z-index:999;max-width:calc(100vw - 32px);text-align:center}
+#upc-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 .chip.approved,.chip.sent,.chip.done{background:rgba(52,209,123,.16);color:var(--green)}
 .chip.held,.chip.draft-ready{background:rgba(233,185,73,.16);color:var(--amber)}
 .chip.overdue{background:rgba(255,93,93,.14);color:var(--red)}
@@ -200,6 +204,7 @@ pre.report{white-space:pre-wrap;word-break:break-word;background:#0e0e11;border:
       <h3 id="upc-follow-h" class="hidden">Needs follow-up</h3>
       <div id="upc-follow"></div>
     </div>
+    <div id="upc-toast" aria-live="polite"></div>
     <div id="all-invoices" style="margin-top:18px"></div>
   </div>
 
@@ -438,9 +443,17 @@ function upcRowHtml(r){
     '<div class="upc-main"><div class="upc-title">' + esc(r.title) + '</div><div class="upc-detail">' + esc(r.detail) + '</div></div>' +
     '<div class="upc-acts">' + upcChip(r);
   if (r.actionable) {
-    h += '<button class="btn sm primary" data-upc="approve">✓ Approve</button>' +
-      '<button class="btn sm" data-upc="hold">Hold</button>' +
-      '<button class="btn sm danger" data-upc="clear">Clear</button>';
+    if (r.status === 'approved') {
+      h += '<span class="upc-done">✓ Approved</span>';
+    } else {
+      h += '<button class="btn sm primary" data-upc="approve">✓ Approve</button>';
+    }
+    if (r.status === 'held') {
+      h += '<span class="upc-done held">Held</span>';
+    } else {
+      h += '<button class="btn sm" data-upc="hold">Hold</button>';
+    }
+    h += '<button class="btn sm danger" data-upc="clear">Clear</button>';
   }
   return h + '</div></div>';
 }
@@ -465,6 +478,15 @@ function loadUpcoming(){
   }).catch(function(){});
 }
 var upcClearKey = null;
+var upcToastTimer = null;
+function showUpcToast(msg){
+  var t = document.getElementById('upc-toast');
+  if (!t) return;
+  t.textContent = msg;
+  t.classList.add('show');
+  if (upcToastTimer) clearTimeout(upcToastTimer);
+  upcToastTimer = setTimeout(function(){ t.classList.remove('show'); }, 3500);
+}
 document.getElementById('upcoming').addEventListener('click', function(e){
   var btn = e.target.closest('button[data-upc]');
   if (!btn) return;
@@ -480,6 +502,10 @@ document.getElementById('upcoming').addEventListener('click', function(e){
   }
   api('/api/upcoming/action', { method: 'POST', body: JSON.stringify({ key: key, action: act }) }).then(function(r){
     if (!r.ok) { alert('Failed: ' + (r.j.error || 'unknown error')); return; }
+    var row = null;
+    upcomingRows.forEach(function(x){ if (x.key === key) row = x; });
+    if (act === 'approve') showUpcToast('Approved — fires ' + (row && row.date <= upcomingToday ? 'next run' : (row ? fmtDate(row.date) : 'on its scheduled date')));
+    else if (act === 'hold') showUpcToast('Held — will not fire until you approve it');
     loadUpcoming();
   });
 });
@@ -491,6 +517,7 @@ document.getElementById('upc-clear-confirm').addEventListener('click', function(
   if (!key) return;
   api('/api/upcoming/action', { method: 'POST', body: JSON.stringify({ key: key, action: 'clear' }) }).then(function(r){
     if (!r.ok) { alert('Failed: ' + (r.j.error || 'unknown error')); return; }
+    showUpcToast('Cleared — that occurrence will never fire');
     loadUpcoming();
   });
 });
