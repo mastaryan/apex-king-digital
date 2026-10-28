@@ -840,4 +840,4 @@ function mountAuditBilling(app, authRequired) {
 
 }
 
-module.exports = { mountAuditBilling, recomputeScore, billingState };
+module.exports = { mountAuditBilling, recomputeScore, billingState, reportEmailBody };

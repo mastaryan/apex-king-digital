@@ -274,3 +274,87 @@ CREATE TABLE IF NOT EXISTS audit_orders (
 );
 CREATE INDEX IF NOT EXISTS audit_orders_domain_idx ON audit_orders (domain);
 CREATE INDEX IF NOT EXISTS audit_orders_status_idx ON audit_orders (status);
+
+-- ---------- Card home (2026-10-28, Ryan: "Let's build it") ----------
+-- One card per backend piece; each section below is a small table the
+-- card opens into. No HKL data; no invented rows — seeds below are only
+-- facts already verified in the thread (Grundy GBP unclaimed; the two
+-- live Apex demo sites).
+
+-- Customers: which Apex products each customer has (picked in the
+-- dashboard when adding/editing a customer; used by the Customers card
+-- "Has" line). Products are Apex service names, not free text.
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS products TEXT[] NOT NULL DEFAULT '{}';
+
+-- Local SEO: to-do lane (front-end signups land here) -> tracking lane
+-- (setup done, flags monitored). kind: gbp = Google Business Profile.
+CREATE TABLE IF NOT EXISTS local_seo_items (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  business_name TEXT NOT NULL,
+  kind          TEXT NOT NULL DEFAULT 'gbp' CHECK (kind IN ('gbp','local_seo','other')),
+  status        TEXT NOT NULL DEFAULT 'todo' CHECK (status IN ('todo','tracking')),
+  flags         JSONB NOT NULL DEFAULT '{}',
+  notes         TEXT NOT NULL DEFAULT '',
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- Grundy Insurance: GBP is NOT set up (verified Oct 2026) — Phil must
+-- claim as owner; Ryan offers a 15-min walkthrough. The standing example
+-- for the Local SEO to-do lane.
+INSERT INTO local_seo_items (id, business_name, kind, status, flags, notes)
+VALUES ('00000000-0000-0000-0000-000000000001', 'Grundy Insurance', 'gbp', 'todo',
+        '{"profile_claimed": false}'::jsonb,
+        'GBP not set up — Phil must claim as owner; Ryan offers a 15-min walkthrough.')
+ON CONFLICT (id) DO NOTHING;
+
+-- Bots: treated like websites — built, then added here; pending while
+-- being built. No order form. Health (Phase 3) plugs into last_seen.
+CREATE TABLE IF NOT EXISTS bots (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company    TEXT NOT NULL,
+  name       TEXT NOT NULL,
+  platform   TEXT NOT NULL CHECK (platform IN ('telegram','discord','other')),
+  status     TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','live','down')),
+  last_seen  TIMESTAMPTZ,
+  notes      TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Mock-ups: Netlify draft demos, tracked draft -> changes -> approved ->
+-- live. Clicking one reveals the full (non-censored) detail.
+CREATE TABLE IF NOT EXISTS mockups (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name       TEXT NOT NULL,
+  client     TEXT,
+  url        TEXT,
+  status     TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','changes','approved','live')),
+  notes      TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- Live Apex demos (verified): Poured With Purpose demo v3, Nicely
+-- Printed 3D demo. Both awaiting client decisions.
+INSERT INTO mockups (id, name, client, url, status, notes)
+VALUES ('00000000-0000-0000-0000-000000000002', 'Poured With Purpose demo', 'Poured With Purpose Lemonade Co.', 'https://poured-with-purpose-demo.netlify.app', 'draft',
+        'Demo v3: 5-photo deck + fall menu. No invoice — free vs paid still open.')
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO mockups (id, name, client, url, status, notes)
+VALUES ('00000000-0000-0000-0000-000000000003', 'Nicely Printed 3D demo', 'Nicely Printed 3D', 'https://nicelyprinted-demo.netlify.app', 'draft',
+        '3D printing demo site.')
+ON CONFLICT (id) DO NOTHING;
+
+-- M.R. TV: customers with a subscription. start = invoice date, end =
+-- start + 1 year (yearly) or + 1 month (monthly); days left is the
+-- headline number. NO credits tracking, NO pause. Invoice route
+-- (through the TV provider vs through Apex) is OPEN — parked, not decided.
+CREATE TABLE IF NOT EXISTS mrtv_customers (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name       TEXT NOT NULL,
+  email      CITEXT,
+  plan       TEXT NOT NULL DEFAULT 'yearly' CHECK (plan IN ('monthly','yearly')),
+  start_date DATE NOT NULL,
+  end_date   DATE NOT NULL,
+  notes      TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

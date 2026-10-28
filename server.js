@@ -84,6 +84,22 @@ app.get('/api/admin/compare', authRequired, async (req, res) => {
   }
 });
 
+// ---------- TEMPORARY Postgres admin endpoint (card home) ----------
+// TODO(phase1): REMOVE /api/admin/schema at cutover, with migrate/compare.
+// Applies db/schema.sql ONLY (idempotent CREATE/ALTER/seed) — it never
+// loads a snapshot, so it cannot wipe newer PG data the way re-running
+// /api/admin/migrate would. Used to create the card-home tables on Render.
+app.post('/api/admin/schema', authRequired, async (req, res) => {
+  try {
+    const { getPool } = require('./db/pg');
+    const schema = fs.readFileSync(path.join(__dirname, 'db', 'schema.sql'), 'utf8');
+    await getPool().query(schema);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e).slice(0, 500) });
+  }
+});
+
 // ---------- sites store (centralized: db/store.js) ----------
 // Files are the source of truth during dual-write; the PG mirror updates
 // after every file write when USE_POSTGRES=1 (see db/store.js).
@@ -210,5 +226,8 @@ try { require('./db/audit-billing').mountAuditBilling(app, authRequired); } catc
 
 // Audits (Phase 2, Tracking Health Score) — PG-backed, behind login
 try { require('./db/audits').mountAudits(app, authRequired); } catch (e) { console.error('audits mount', e.message); }
+
+// Card home (2026-10-28): 9 cards, one per backend piece
+try { require('./db/home').mountHome(app, authRequired); } catch (e) { console.error('home mount', e.message); }
 
 app.listen(PORT, () => console.log('apex-dashboard listening on ' + PORT));

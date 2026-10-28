@@ -112,33 +112,102 @@ footer button:hover{color:var(--silver)}
 .chip.held,.chip.draft-ready{background:rgba(233,185,73,.16);color:var(--amber)}
 .chip.overdue{background:rgba(255,93,93,.14);color:var(--red)}
 .chip.scheduled,.chip.cleared,.chip.suppressed,.chip.expired,.chip.anchor,.chip.skipped_paid{background:#2a2a31;color:var(--dim)}
+/* home cards */
+.view.hidden{display:none}
+.back{background:none;border:none;color:var(--dim);font-size:14px;cursor:pointer;font-family:inherit;padding:0;margin-bottom:10px}
+.back:hover{color:var(--silver)}
+.view h2{font-size:22px;margin-bottom:4px}
+.home-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:6px}
+@media(max-width:600px){.home-grid{grid-template-columns:repeat(2,1fr)}}
+.hcard{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px 16px;cursor:pointer;text-align:left;color:var(--silver);font-family:inherit;width:100%}
+.hcard:hover{border-color:var(--gold)}
+.hcard .t{font-size:16px;font-weight:700;margin-bottom:8px}
+.hcard .n{font-size:28px;font-weight:700;line-height:1.1}
+.hcard .n small{font-size:14px;color:var(--dim);font-weight:400}
+.hcard .s{font-size:13px;color:var(--dim);margin-top:4px}
+.hcard .soon{color:var(--amber);font-size:13px;font-weight:700;margin-top:4px}
+.home-foot{margin-top:22px;color:var(--dim);font-size:13px;text-align:center}
+.site-head-row{display:flex;align-items:stretch}
+.site-head-row .site-head{flex:1}
+.visit{align-self:center;padding:0 14px 0 4px;color:var(--blue);font-size:13px;text-decoration:none;white-space:nowrap}
+.visit:hover{text-decoration:underline}
+/* queues */
+.qgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px}
+@media(max-width:600px){.qgrid{grid-template-columns:1fr}}
+.qbox{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;cursor:pointer}
+.qbox.sel{border-color:var(--gold)}
+.qbox .qn{font-size:30px;font-weight:700;line-height:1.1}
+.qbox .qt{font-weight:700;font-size:15px;margin-top:4px}
+.qbox .qs{font-size:13px;color:var(--dim)}
+.qsplit{font-size:13px;color:var(--dim);margin-top:8px;line-height:1.6}
+.qitem{font-size:14px}
+.qitem .st{font-size:12px;color:var(--dim)}
+.qitem .nomatch{color:var(--amber);font-size:13px}
+/* lanes */
+.lane-h{font-size:14px;color:var(--dim);text-transform:uppercase;letter-spacing:.6px;margin:18px 0 8px}
+.lane-row{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:8px;flex-wrap:wrap}
+.lane-row .m{flex:1;min-width:200px}
+.flag{font-size:12px;font-weight:700;padding:2px 9px;border-radius:999px}
+.flag.ok{background:rgba(52,209,123,.16);color:var(--green)}
+.flag.no{background:rgba(233,185,73,.16);color:var(--amber)}
+/* customers */
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.fchip{background:#232329;border:1px solid #35353d;color:var(--silver);border-radius:999px;padding:6px 14px;font-size:13px;cursor:pointer;font-family:inherit}
+.fchip.sel{border-color:var(--gold);color:#fff}
+.cust{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin-bottom:10px}
+.cust .cn{font-weight:700;font-size:16px}
+.cust .cm{font-size:13.5px;color:var(--dim);margin-top:2px}
+.cust .crow{display:flex;gap:14px;flex-wrap:wrap;font-size:13.5px;margin-top:8px}
+.cust .crow b{font-weight:700}
+.checks{display:flex;flex-wrap:wrap;gap:8px}
+.checks label{display:flex;gap:6px;align-items:center;font-size:13.5px;background:#0e0e11;border:1px solid var(--line);border-radius:999px;padding:6px 12px;cursor:pointer}
+pre.report{white-space:pre-wrap;word-break:break-word;background:#0e0e11;border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:13.5px;max-height:50vh;overflow-y:auto;font-family:ui-monospace,Menlo,monospace}
 @media(max-width:600px){body{padding:22px 14px 48px}h1{font-size:24px}.site-head{font-size:16px;padding:15px 16px}.site-body{padding:0 16px 18px}}
 </style>
 </head>
 <body>
 <div class="wrap hidden" id="app">
   <h1>Client Dashboard</h1>
-  <p class="sub">Every site on Render, at a glance. Tap a site to expand.</p>
-  <div class="legend">
-    <span><span class="dot green"></span> Live</span>
-    <span><span class="dot red"></span> Issue</span>
-    <span id="status-note" style="margin-left:auto"></span>
+  <div id="view-home">
+    <p class="sub">One card per piece. Tap a card to open it.</p>
+    <div class="home-grid" id="home-grid"></div>
+    <p class="home-foot">Silverback Group</p>
   </div>
-  <div class="upc" id="upcoming">
-    <h2>Upcoming — next 45 days</h2>
-    <p class="sub">Nothing fires without your approval. Approve a row and it goes on its scheduled date; hold it to deal with later; clear it and that occurrence never fires.</p>
-    <div id="upc-list"></div>
-    <h3 id="upc-follow-h" class="hidden">Needs follow-up</h3>
-    <div id="upc-follow"></div>
+
+  <div id="view-websites" class="view hidden">
+    <button class="back" data-nav="home" type="button">← All pieces</button>
+    <h2>Websites</h2>
+    <p class="sub">Every site on Render, at a glance. Tap a site to expand.</p>
+    <div class="legend">
+      <span><span class="dot green"></span> Live</span>
+      <span><span class="dot red"></span> Issue</span>
+      <span id="status-note" style="margin-left:auto"></span>
+    </div>
+    <input class="search" id="search" type="text" placeholder="🔍 Search sites…" autocomplete="off" />
+    <div class="list" id="site-list"></div>
+    <p class="no-results" id="no-results">No sites match your search.</p>
+    <button class="add" id="add-btn" type="button"><span class="plus">+</span> Add new site</button>
   </div>
-  <input class="search" id="search" type="text" placeholder="🔍 Search sites…" autocomplete="off" />
-  <div class="list" id="site-list"></div>
-  <p class="no-results" id="no-results">No sites match your search.</p>
-  <button class="add" id="add-btn" type="button"><span class="plus">+</span> Add new site</button>
-  <div class="upc" id="audits" style="margin-top:26px">
+
+  <div id="view-invoices" class="view hidden">
+    <button class="back" data-nav="home" type="button">← All pieces</button>
+    <h2>Invoices</h2>
+    <p class="sub">Renewal invoices live inside each site — this is the overview. Per-site invoice lists are unchanged.</p>
+    <div class="upc" id="upcoming">
+      <h2>Upcoming — next 45 days</h2>
+      <p class="sub">Nothing fires without your approval. Approve a row and it goes on its scheduled date; hold it to deal with later; clear it and that occurrence never fires.</p>
+      <div id="upc-list"></div>
+      <h3 id="upc-follow-h" class="hidden">Needs follow-up</h3>
+      <div id="upc-follow"></div>
+    </div>
+    <div id="all-invoices" style="margin-top:18px"></div>
+  </div>
+
+  <div id="view-audits" class="view hidden">
+    <button class="back" data-nav="home" type="button">← All pieces</button>
     <h2>Audits — Tracking Health Score</h2>
     <p class="sub">Full audit data, behind your login. The public tool shows masked domains only. Tap an audit to see its findings.</p>
-    <div id="audit-orders" style="margin-bottom:14px"></div>
+    <div id="audit-queues" style="margin-bottom:14px"></div>
     <input class="search" id="audit-search" type="text" placeholder="🔍 Search audits…" autocomplete="off" />
     <details style="margin-bottom:14px">
       <summary style="cursor:pointer;color:var(--dim);font-size:14px">+ Add a new audit (a new site joins the list)</summary>
@@ -155,6 +224,105 @@ footer button:hover{color:var(--silver)}
     <div class="list" id="audit-list"></div>
     <p class="no-results" id="audit-no-results">No audits match your search.</p>
   </div>
+
+  <div id="view-local-seo" class="view hidden">
+    <button class="back" data-nav="home" type="button">← All pieces</button>
+    <h2>Local SEO</h2>
+    <p class="sub">One-offs who want just local SEO done. A front-end signup lands in To-do; mark it done and it moves to Tracking.</p>
+    <div id="ls-lanes"></div>
+    <details style="margin-top:14px">
+      <summary style="cursor:pointer;color:var(--dim);font-size:14px">+ Add a Local SEO item</summary>
+      <div style="margin-top:10px">
+        <div class="frow">
+          <div class="field"><label>Business *</label><input id="ls-name" placeholder="Business name" /></div>
+          <div class="field"><label>Kind</label><select id="ls-kind" style="width:100%;background:#0e0e11;border:1px solid var(--line);border-radius:10px;color:var(--silver);font-size:15px;padding:10px 14px;font-family:inherit"><option value="gbp">Google Business Profile</option><option value="local_seo">Local SEO setup</option><option value="other">Other</option></select></div>
+        </div>
+        <div class="field"><label>Notes</label><textarea id="ls-notes" rows="2" placeholder="What they asked for…"></textarea></div>
+        <div class="mactions" style="justify-content:flex-start"><button class="btn primary" id="ls-add" type="button">Add to To-do</button></div>
+      </div>
+    </details>
+  </div>
+
+  <div id="view-bots" class="view hidden">
+    <button class="back" data-nav="home" type="button">← All pieces</button>
+    <h2>Telegram &amp; Discord Bots</h2>
+    <p class="sub">Bots work like websites: built, then added here. Pending while being built — no order form.</p>
+    <div id="bot-list"></div>
+    <details style="margin-top:14px">
+      <summary style="cursor:pointer;color:var(--dim);font-size:14px">+ Add a bot</summary>
+      <div style="margin-top:10px">
+        <div class="frow">
+          <div class="field"><label>Company *</label><input id="bot-company" placeholder="Company" /></div>
+          <div class="field"><label>Bot name *</label><input id="bot-name" placeholder="e.g. Orders bot" /></div>
+          <div class="field"><label>Platform</label><select id="bot-platform" style="width:100%;background:#0e0e11;border:1px solid var(--line);border-radius:10px;color:var(--silver);font-size:15px;padding:10px 14px;font-family:inherit"><option value="telegram">Telegram</option><option value="discord">Discord</option><option value="other">Other</option></select></div>
+        </div>
+        <div class="field"><label>Notes</label><textarea id="bot-notes" rows="2" placeholder="What it does, access, status…"></textarea></div>
+        <div class="mactions" style="justify-content:flex-start"><button class="btn primary" id="bot-add" type="button">Add as pending</button></div>
+      </div>
+    </details>
+  </div>
+
+  <div id="view-email" class="view hidden">
+    <button class="back" data-nav="home" type="button">← All pieces</button>
+    <h2>Email</h2>
+    <p class="sub">Sends, from Resend (HKL + Apex share one account, so the numbers are combined) and from the dashboard itself.</p>
+    <div id="email-stats"></div>
+  </div>
+
+  <div id="view-customers" class="view hidden">
+    <button class="back" data-nav="home" type="button">← All pieces</button>
+    <h2>Customers</h2>
+    <p class="sub">Look a customer up, see what's outstanding and what's come before. Add one, then pick their product(s).</p>
+    <input class="search" id="cust-search" type="text" placeholder="🔍 Search customers…" autocomplete="off" />
+    <div class="chips" id="cust-filters"></div>
+    <div class="mactions" style="justify-content:flex-start;margin:0 0 14px"><button class="btn primary" id="cust-add" type="button">+ Add customer</button></div>
+    <div id="cust-list"></div>
+    <p class="no-results" id="cust-no-results">No customers match.</p>
+  </div>
+
+  <div id="view-mockups" class="view hidden">
+    <button class="back" data-nav="home" type="button">← All pieces</button>
+    <h2>Mock-ups</h2>
+    <p class="sub">Draft demos on Netlify. Tap one to see the full version — links, client, notes.</p>
+    <div id="mockup-list"></div>
+    <details style="margin-top:14px">
+      <summary style="cursor:pointer;color:var(--dim);font-size:14px">+ Add a mock-up</summary>
+      <div style="margin-top:10px">
+        <div class="frow">
+          <div class="field"><label>Name *</label><input id="mu-name" placeholder="e.g. Bakery demo" /></div>
+          <div class="field"><label>Client</label><input id="mu-client" placeholder="Client name" /></div>
+        </div>
+        <div class="field"><label>Preview URL</label><input id="mu-url" placeholder="https://….netlify.app" /></div>
+        <div class="field"><label>Notes</label><textarea id="mu-notes" rows="2"></textarea></div>
+        <div class="mactions" style="justify-content:flex-start"><button class="btn primary" id="mu-add" type="button">Add mock-up</button></div>
+      </div>
+    </details>
+  </div>
+
+  <div id="view-mrtv" class="view hidden">
+    <button class="back" data-nav="home" type="button">← All pieces</button>
+    <h2>M.R. TV</h2>
+    <p class="sub">Coming soon. Customers, payments, monthly + yearly invoicing — and whatever integrations turn out to exist.</p>
+    <p class="note" style="margin-bottom:14px">⏳ Invoice route is still open: through the TV provider, or through Apex invoicing? Not decided yet — parked here until you call it.</p>
+    <div id="mrtv-list"></div>
+    <details style="margin-top:14px">
+      <summary style="cursor:pointer;color:var(--dim);font-size:14px">+ Add an M.R. TV customer</summary>
+      <div style="margin-top:10px">
+        <div class="frow">
+          <div class="field"><label>Name *</label><input id="tv-name" placeholder="Customer name" /></div>
+          <div class="field"><label>Email</label><input id="tv-email" placeholder="customer@example.com" /></div>
+        </div>
+        <div class="frow">
+          <div class="field"><label>Plan</label><select id="tv-plan" style="width:100%;background:#0e0e11;border:1px solid var(--line);border-radius:10px;color:var(--silver);font-size:15px;padding:10px 14px;font-family:inherit"><option value="yearly">Yearly (end = start + 1 year)</option><option value="monthly">Monthly (end = start + 1 month)</option></select></div>
+          <div class="field"><label>Start date (invoice date)</label><input id="tv-start" type="date" /></div>
+        </div>
+        <div class="field"><label>Notes</label><textarea id="tv-notes" rows="2"></textarea></div>
+        <div class="mactions" style="justify-content:flex-start"><button class="btn primary" id="tv-add" type="button">Add customer</button></div>
+        <p class="note">Days left is the headline number. No credits tracking, no pause — start is the invoice date.</p>
+      </div>
+    </details>
+  </div>
+
   <footer><span>Apex King Digital</span><button id="logout" type="button">Sign out</button></footer>
 </div>
 
@@ -212,6 +380,41 @@ footer button:hover{color:var(--silver)}
     <div class="mactions">
       <button class="btn" id="upc-clear-cancel" type="button">Cancel</button>
       <button class="btn danger" id="upc-clear-confirm" type="button">Clear</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="report-modal">
+  <div class="card">
+    <h2>Review report before sending</h2>
+    <div class="field"><label>To</label><div class="memo-preview" id="rep-to">—</div></div>
+    <div class="field"><label>Subject</label><div class="memo-preview" id="rep-subject">—</div></div>
+    <div class="field"><label>Report (exactly as it will send, from hello@apexkingdigital.com)</label><pre class="report" id="rep-body">Loading…</pre></div>
+    <p class="note" id="rep-note"></p>
+    <div class="mactions" style="justify-content:flex-start;flex-wrap:wrap">
+      <button class="btn primary" id="rep-send" type="button">Send it</button>
+      <button class="btn" id="rep-test" type="button">Send test to me</button>
+      <button class="btn" id="rep-cancel" type="button" style="margin-left:auto">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="customer-modal">
+  <div class="card">
+    <h2 id="cust-title">Add customer</h2>
+    <div class="frow">
+      <div class="field"><label>Name *</label><input id="c-name" placeholder="Customer / business name" /></div>
+      <div class="field"><label>Contact first name</label><input id="c-contact" placeholder="Kross" /></div>
+    </div>
+    <div class="frow">
+      <div class="field"><label>Email</label><input id="c-email" type="email" placeholder="customer@example.com" /></div>
+      <div class="field"><label>Phone</label><input id="c-phone" placeholder="(606) 555-0100" /></div>
+    </div>
+    <div class="field"><label>Products they have</label><div class="checks" id="c-products"></div></div>
+    <div class="field"><label>Notes</label><textarea id="c-notes" rows="2" placeholder="What they asked for, access, next steps…"></textarea></div>
+    <div class="mactions">
+      <button class="btn" id="cust-cancel" type="button">Cancel</button>
+      <button class="btn primary" id="cust-save" type="button">Save</button>
     </div>
   </div>
 </div>
@@ -331,7 +534,8 @@ function render(){
     var div = document.createElement('div');
     div.className = 'site'; div.dataset.id = s.id;
     div.innerHTML =
-      '<button class="site-head" title="' + esc(title) + '"><span class="dot ' + dot + '"></span>' + esc(s.name) + '<span class="chev">▼</span></button>' +
+      '<div class="site-head-row"><button class="site-head" title="' + esc(title) + '"><span class="dot ' + dot + '"></span>' + esc(s.name) + '<span class="chev">▼</span></button>' +
+      '<a class="visit" href="' + esc(s.url) + '" target="_blank" rel="noopener">Visit ↗</a></div>' +
       '<div class="site-body">' +
         '<a class="url" href="' + esc(s.url) + '" target="_blank" rel="noopener">' + esc(s.url.replace(/^https?:\/\//,'')) + ' →</a>' +
         '<div class="row"><span class="k">Render status</span><span class="v ' + (dot === 'green' ? '' : dot === 'red' ? 'over' : 'tbd') + '">' + esc(title) + '</span></div>' +
@@ -346,7 +550,44 @@ function render(){
     list.appendChild(div);
   });
   document.getElementById('no-results').style.display = visible ? 'none' : 'block';
+  renderAllInvoices();
 }
+
+/* Invoices view: read-only overview across all sites. The per-site
+   invoice lists (create / send / void) are unchanged — this just links
+   into them. */
+function renderAllInvoices(){
+  var box = document.getElementById('all-invoices');
+  if (!box) return;
+  var rows = [];
+  sites.forEach(function(s){
+    (s.invoices || []).filter(function(r){ return r.status !== 'deleted'; }).forEach(function(r){
+      rows.push({ site: s, inv: r });
+    });
+  });
+  if (!rows.length) { box.innerHTML = '<p class="note">No invoices yet.</p>'; return; }
+  var open = rows.filter(function(x){ return x.inv.status === 'open'; });
+  var h = '<div class="audit-sec">All invoices</div>';
+  if (open.length) h += '<p class="note">' + open.length + ' open · $' + (open.length * 100).toFixed(0) + ' outstanding (renewals are $100 each).</p>';
+  rows.forEach(function(x){
+    var r = x.inv, s = x.site;
+    h += '<div class="invrow"><span class="chip ' + esc(r.status) + '">' + esc(r.status === 'open' ? 'sent · unpaid' : r.status) + '</span>' +
+      (r.test ? '<span class="chip test">test</span>' : '') +
+      '<span>' + esc(r.number || 'Draft') + ' — $100.00 · ' + esc(s.name) + (r.dueDate ? ' · due ' + esc(fmtDate(r.dueDate)) : '') + '</span>' +
+      '<span class="sp"><button class="btn sm" data-goto-site="' + esc(s.id) + '" type="button">Open site</button></span></div>';
+  });
+  box.innerHTML = h;
+}
+document.getElementById('all-invoices').addEventListener('click', function(e){
+  var btn = e.target.closest('button[data-goto-site]');
+  if (!btn) return;
+  var id = btn.dataset.gotoSite;
+  showView('websites');
+  setTimeout(function(){
+    var card = document.querySelector('#site-list .site[data-id="' + id + '"]');
+    if (card) { card.classList.add('open'); card.scrollIntoView({ block: 'start' }); }
+  }, 50);
+});
 
 function earliestRenewalIso(s){
   var ds = [s.domainRenewal, s.hostingRenewal].filter(Boolean).sort();
@@ -437,7 +678,7 @@ document.getElementById('inv-send').addEventListener('click', function(){
 
 document.getElementById('site-list').addEventListener('click', function(e){
   var head = e.target.closest('.site-head');
-  if (head) { head.parentElement.classList.toggle('open'); return; }
+  if (head) { head.closest('.site').classList.toggle('open'); return; }
   var ibtn = e.target.closest('button[data-inv]');
   if (ibtn) {
     var iid = ibtn.closest('.site').dataset.id;
@@ -700,8 +941,7 @@ document.getElementById('audit-list').addEventListener('click', function(e){
     api('/api/audits/' + auditId + '/purchases', { method: 'POST', body: JSON.stringify({ kind: val('p-kind'), stripe_ref: val('p-ref'), buyer_email: val('p-email') }) })
       .then(function(r){ r.ok ? done('Purchase recorded — ' + r.j.unlockStatus + '.') : fail(r); });
   } else if (act === 'send-report' || act === 'send-report-test') {
-    api('/api/audits/' + auditId + '/report/send', { method: 'POST', body: JSON.stringify({ test: act === 'send-report-test' }) })
-      .then(function(r){ r.ok ? done(act === 'send-report-test' ? 'Test report sent to you.' : 'Report sent to ' + r.j.deliveredTo + '.') : fail(r); });
+    openReportPreview(auditId, act === 'send-report-test');
   } else if (act === 'guide-generate') {
     api('/api/audits/' + auditId + '/guide/draft', { method: 'POST', body: JSON.stringify({}) })
       .then(function(r){
@@ -734,41 +974,88 @@ document.getElementById('audit-list').addEventListener('click', function(e){
       .then(function(r){ r.ok ? done('Notes saved.', false) : fail(r); });
   }
 });
-/* Incoming orders from the public tool's order form — website + store
-   type + payment choice, waiting for the Stripe payment to land. Ryan
-   creates the audit from the order once the payment notification arrives,
-   then records the purchase on the audit; the report goes out after that. */
-function loadAuditOrders(){
-  var box = document.getElementById('audit-orders');
-  if (!box) return;
-  api('/api/audits/orders').then(function(r){
-    if (!r.ok) { box.innerHTML = ''; return; }
-    var open = (r.j.orders || []).filter(function(o){ return o.status === 'ordered'; });
-    if (!open.length) { box.innerHTML = ''; return; }
-    var h = '<div class="audit-sec">Incoming orders — ' + open.length + ' waiting on payment</div>';
-    open.forEach(function(o){
-      h += '<div class="invrow"><span class="chip open">' + esc(o.choice) + ' · $' + (o.choice === 'bundle' ? '40' : '25') + '</span><span><b>' + esc(o.domain || o.website) + '</b> · ' + esc({ shopify: 'Shopify', woocommerce: 'WooCommerce', wix: 'Wix', squarespace: 'Squarespace', custom: 'Custom', unknown: 'Not sure' }[o.store_type] || o.store_type) + ' · ' + esc(o.buyer_email || 'no email yet') + ' · ' + esc(String(o.created_at || '').slice(0, 10)) + '</span><span class="sp">' +
-        '<button class="btn sm primary" data-oact="create-audit" data-oid="' + esc(o.id) + '" type="button">Create audit</button>' +
-        '<button class="btn sm danger" data-oact="cancel" data-oid="' + esc(o.id) + '" type="button">Cancel</button></span></div>';
-    });
-    box.innerHTML = h;
+/* Audit queues — pending work, split by customer email. Counts are REAL
+   (live orders + recorded purchases) and live ONLY here, never on the
+   home screen. An order with no purchase yet shows "not matched yet":
+   Ryan matches the Stripe notification when he records the purchase on
+   the audit — that recording IS the invoice match. */
+var queueSel = 'audit';
+var queueData = null;
+function storeTypeName(t){
+  return { shopify: 'Shopify', woocommerce: 'WooCommerce', wix: 'Wix', squarespace: 'Squarespace', custom: 'Custom', unknown: 'Not sure' }[t] || t || '—';
+}
+function queueItemHtml(it){
+  var price = '$' + (it.amountCents / 100).toFixed(0);
+  var h = '<div class="invrow qitem"><span class="chip open">' + price + '</span>' +
+    '<span><b>' + esc(it.domain || it.website) + '</b> · ' + esc(storeTypeName(it.storeType)) + ' · ' + esc(it.buyerEmail || 'no email given') +
+    ' · ' + esc(String(it.createdAt || '').slice(0, 10)) + '<br><span class="st">' + esc(it.state) + ' · ' +
+    (it.stripeMatched
+      ? 'Stripe: ' + esc(it.stripeRef)
+      : '<span class="nomatch">Stripe payment: not matched yet — record it when the Stripe notification lands.</span>') +
+    '</span></span><span class="sp">';
+  if (it.source === 'order') {
+    h += '<button class="btn sm primary" data-oact="create-audit" data-oid="' + esc(it.orderId) + '" type="button">Create audit</button>' +
+      '<button class="btn sm danger" data-oact="cancel" data-oid="' + esc(it.orderId) + '" type="button">Cancel</button>';
+  } else if (it.auditId) {
+    h += '<button class="btn sm" data-oact="open-audit" data-aid="' + esc(it.auditId) + '" type="button">Open audit</button>';
+  }
+  return h + '</span></div>';
+}
+function renderQueues(){
+  var box = document.getElementById('audit-queues');
+  if (!box || !queueData) return;
+  var order = ['audit', 'guide', 'bundle'];
+  var h = '<div class="qgrid">';
+  order.forEach(function(k){
+    var q = queueData[k];
+    h += '<div class="qbox' + (queueSel === k ? ' sel' : '') + '" data-q="' + k + '">' +
+      '<div class="qn">' + q.count + '</div><div class="qt">' + esc(q.label) + '</div><div class="qs">Pending requests</div></div>';
+  });
+  h += '</div>';
+  var q = queueData[queueSel];
+  if (q.byEmail.length) {
+    h += '<div class="qsplit">' + q.byEmail.map(function(b){
+      return esc(b.email) + ' — <b style="color:var(--silver)">' + b.count + '</b>';
+    }).join(' &nbsp;·&nbsp; ') + '</div>';
+  }
+  h += '<div style="margin-top:8px">' +
+    (q.items.length ? q.items.map(queueItemHtml).join('') : '<p class="note">Nothing pending here right now.</p>') + '</div>';
+  box.innerHTML = h;
+}
+function loadQueues(){
+  api('/api/audits/queues').then(function(r){
+    if (!r.ok) return;
+    queueData = r.j;
+    renderQueues();
   }).catch(function(){});
 }
-document.getElementById('audit-orders').addEventListener('click', function(e){
+document.getElementById('audit-queues').addEventListener('click', function(e){
+  var qbox = e.target.closest('.qbox');
+  if (qbox) { queueSel = qbox.dataset.q; renderQueues(); return; }
   var btn = e.target.closest('button[data-oact]');
   if (!btn) return;
-  var oid = btn.dataset.oid;
-  if (btn.dataset.oact === 'create-audit') {
+  var act = btn.dataset.oact;
+  if (act === 'create-audit') {
+    var oid = btn.dataset.oid;
     api('/api/audits/orders/' + oid + '/create-audit', { method: 'POST', body: JSON.stringify({}) })
       .then(function(r){
         if (!r.ok) { alert('Failed: ' + (r.j.error || 'unknown error')); return; }
         alert(r.j.existing ? 'Linked to existing audit ' + r.j.auditId + '.' : 'Audit ' + r.j.auditId + ' created — add findings from its card, then record the purchase once Stripe confirms payment.');
-        loadAuditOrders(); loadAudits();
+        loadQueues(); loadAudits(); loadHome();
       });
-  } else if (btn.dataset.oact === 'cancel') {
+  } else if (act === 'cancel') {
     if (!confirm('Cancel this order?')) return;
-    api('/api/audits/orders/' + oid + '/cancel', { method: 'POST', body: JSON.stringify({}) })
-      .then(function(r){ r.ok ? loadAuditOrders() : alert('Failed: ' + (r.j.error || 'unknown error')); });
+    api('/api/audits/orders/' + btn.dataset.oid + '/cancel', { method: 'POST', body: JSON.stringify({}) })
+      .then(function(r){ r.ok ? (loadQueues(), loadHome()) : alert('Failed: ' + (r.j.error || 'unknown error')); });
+  } else if (act === 'open-audit') {
+    var aid = btn.dataset.aid;
+    var card = document.querySelector('#audit-list .site[data-id="' + aid + '"]');
+    if (card) {
+      card.classList.add('open');
+      var a = audits.find(function(x){ return x.id === aid; });
+      if (a) loadAuditDetail(a, card.querySelector('.site-body'));
+      card.scrollIntoView({ block: 'start' });
+    }
   }
 });
 document.getElementById('aa-add').addEventListener('click', function(){
@@ -786,7 +1073,7 @@ document.getElementById('aa-add').addEventListener('click', function(){
     });
 });
 function loadAudits(){
-  loadAuditOrders();
+  loadQueues();
   api('/api/audits').then(function(r){
     if (!r.ok) return;
     audits = r.j.audits || [];
@@ -805,6 +1092,342 @@ document.getElementById('audit-list').addEventListener('click', function(e){
   }
 });
 
+/* ---------- report preview: review before send ---------- */
+var repAuditId = null;
+function openReportPreview(auditId, test){
+  repAuditId = auditId;
+  document.getElementById('rep-to').textContent = 'Loading…';
+  document.getElementById('rep-subject').textContent = '—';
+  document.getElementById('rep-body').textContent = 'Loading…';
+  document.getElementById('rep-note').textContent = '';
+  document.getElementById('rep-send').disabled = false;
+  document.getElementById('report-modal').classList.add('show');
+  api('/api/audits/' + auditId + '/report/preview').then(function(r){
+    if (!r.ok) {
+      document.getElementById('rep-body').textContent = 'Could not load the preview: ' + (r.j.error || 'unknown error');
+      document.getElementById('rep-send').disabled = true;
+      return;
+    }
+    document.getElementById('rep-to').textContent = r.j.to || '(no buyer email on the purchase yet — send a test to yourself, or record the purchase with the buyer email first)';
+    document.getElementById('rep-subject').textContent = r.j.subject;
+    document.getElementById('rep-body').textContent = r.j.body;
+    document.getElementById('rep-note').textContent = r.j.paid
+      ? 'Paid — ready to send from hello@apexkingdigital.com. The guide upsell ($25) and fix offer ($100/hr, $200 min) are in the email.'
+      : 'Not paid yet — sending to the buyer will be blocked until the $25 audit (or $40 bundle) purchase is recorded. You can still send a test to yourself.';
+    if (test) document.getElementById('rep-note').textContent += ' (This opened as a test — "Send test to me" goes to you.)';
+  });
+}
+function sendReportFromPreview(test){
+  if (!repAuditId) return;
+  api('/api/audits/' + repAuditId + '/report/send', { method: 'POST', body: JSON.stringify({ test: test }) }).then(function(r){
+    if (!r.ok) { alert('Failed: ' + (r.j.error || 'unknown error')); return; }
+    document.getElementById('report-modal').classList.remove('show');
+    alert(test ? 'Test report sent to you.' : 'Report sent to ' + r.j.deliveredTo + '.');
+    reloadAuditCard(repAuditId); loadQueues(); loadHome();
+  });
+}
+document.getElementById('rep-send').addEventListener('click', function(){ sendReportFromPreview(false); });
+document.getElementById('rep-test').addEventListener('click', function(){ sendReportFromPreview(true); });
+document.getElementById('rep-cancel').addEventListener('click', function(){ document.getElementById('report-modal').classList.remove('show'); });
+document.getElementById('report-modal').addEventListener('click', function(e){ if (e.target === this) this.classList.remove('show'); });
+
+/* ---------- card home + section views ---------- */
+var currentView = 'home';
+var custData = [], custFilter = 'All', custProducts = [], editingCustId = null;
+var VIEWS = ['home', 'websites', 'invoices', 'audits', 'local-seo', 'bots', 'email', 'customers', 'mockups', 'mrtv'];
+function showView(name){
+  if (VIEWS.indexOf(name) === -1) name = 'home';
+  currentView = name;
+  VIEWS.forEach(function(v){
+    var el = document.getElementById('view-' + v);
+    if (el) el.classList.toggle('hidden', v !== name);
+  });
+  try { history.replaceState(null, '', '#' + name); } catch (e) {}
+  if (name === 'home') loadHome();
+  if (name === 'local-seo') loadLocalSeo();
+  if (name === 'bots') loadBots();
+  if (name === 'email') loadEmailStats(false);
+  if (name === 'customers') loadCustomers();
+  if (name === 'mockups') loadMockups();
+  if (name === 'mrtv') loadMrtv();
+  if (name === 'audits') loadQueues();
+  window.scrollTo(0, 0);
+}
+document.getElementById('app').addEventListener('click', function(e){
+  var nav = e.target.closest('[data-nav]');
+  if (nav) { showView(nav.dataset.nav); return; }
+  var card = e.target.closest('.hcard');
+  if (card) showView(card.dataset.view);
+});
+window.addEventListener('hashchange', function(){
+  showView((location.hash || '#home').slice(1));
+});
+function num(v){ return (v === null || v === undefined) ? '—' : String(v); }
+function homeCard(view, title, big, small){
+  return '<button class="hcard" data-view="' + view + '" type="button"><div class="t">' + esc(title) + '</div><div class="n">' + big + '</div><div class="s">' + small + '</div></button>';
+}
+function loadHome(){
+  api('/api/home').then(function(r){
+    if (!r.ok) return;
+    var h = r.j;
+    document.getElementById('home-grid').innerHTML =
+      homeCard('audits', 'Audits', esc(h.audits.total) + ' <small>audits</small>', esc(h.audits.scored) + ' scored') +
+      homeCard('local-seo', 'Local SEO', esc(h.localSeo.todo) + ' <small>to-do</small>', esc(h.localSeo.tracking) + ' tracking') +
+      homeCard('websites', 'Websites', esc(h.sites.total) + ' <small>sites</small>', 'live status from Render') +
+      homeCard('bots', 'Bots', esc(h.bots.pending) + ' <small>pending</small>', esc(h.bots.live) + ' live' + (h.bots.down ? ' · ' + h.bots.down + ' down' : '')) +
+      homeCard('invoices', 'Invoices', esc(h.invoices.open) + ' <small>open</small>', esc(h.invoices.paid) + ' paid' + (h.upcoming.open !== null ? ' · ' + h.upcoming.open + ' upcoming' : '')) +
+      homeCard('email', 'Email', '<span id="home-email-n">…</span>', '<span id="home-email-s">Resend</span>') +
+      homeCard('customers', 'Customers', esc(h.customers.total) + ' <small>customers</small>', 'searchable list') +
+      homeCard('mockups', 'Mock-ups', esc(h.mockups.total) + ' <small>mock-ups</small>', esc(h.mockups.draft) + ' draft' + (h.mockups.live ? ' · ' + h.mockups.live + ' live' : '')) +
+      homeCard('mrtv', 'M.R. TV', esc(h.mrtv.total) + ' <small>customers</small>', 'coming soon');
+    loadEmailStats(true);
+  }).catch(function(){});
+}
+function loadEmailStats(homeOnly){
+  api('/api/email/stats').then(function(r){
+    if (!r.ok) return;
+    var d = r.j;
+    var nEl = document.getElementById('home-email-n'), sEl = document.getElementById('home-email-s');
+    if (nEl) {
+      if (d.resend && d.resend.today && d.resend.today.sent !== null) { nEl.textContent = d.resend.today.sent; sEl.textContent = 'sent today · Resend'; }
+      else { nEl.textContent = '—'; sEl.textContent = d.resendConfigured ? 'Resend connected · no data' : 'Resend not connected'; }
+    }
+    if (homeOnly) return;
+    var box = document.getElementById('email-stats');
+    if (!box) return;
+    var h = '';
+    if (d.resend) {
+      h += '<div class="row"><span class="k">Resend — sent today (HKL + Apex)</span><span class="v">' + num(d.resend.today.sent) + '</span></div>' +
+        '<div class="row"><span class="k">Resend — sent this month</span><span class="v">' + num(d.resend.month.sent) + '</span></div>' +
+        '<div class="row"><span class="k">Resend — delivered / bounced / failed (today)</span><span class="v">' + num(d.resend.today.delivered) + ' / ' + num(d.resend.today.bounced) + ' / ' + num(d.resend.today.failed) + '</span></div>' +
+        '<p class="note">Resend account-level — HKL + Apex API sends combined (one shared Resend account).</p>';
+    } else {
+      h += '<p class="note">' + (d.resendConfigured ? 'Resend is connected but the stats call failed' + (d.resendError ? ': ' + esc(d.resendError) : '') + '.' : 'Resend is not connected to the dashboard yet — add RESEND_API_KEY in the Render env to see live counts here.') + '</p>';
+    }
+    h += '<div class="audit-sec">Dashboard sends (via MXroute SMTP — not in the Resend numbers)</div>' +
+      '<div class="row"><span class="k">Audit emails today / this month</span><span class="v">' + d.dashboard.auditEmails.today + ' / ' + d.dashboard.auditEmails.month + '</span></div>' +
+      '<div class="row"><span class="k">Invoice emails today / this month</span><span class="v">' + d.dashboard.invoiceEmails.today + ' / ' + d.dashboard.invoiceEmails.month + '</span></div>' +
+      '<div class="row"><span class="k">Monthly limit</span><span class="v tbd">—</span></div>' +
+      '<p class="note">Resend has no API for the account\'s monthly quota — check the Resend dashboard for the limit on this account.</p>';
+    box.innerHTML = h;
+  }).catch(function(){});
+}
+function lsFlagsHtml(flags){
+  var f = flags || {};
+  if (f.profile_claimed === true) return '<span class="flag ok">profile claimed</span>';
+  if (f.profile_claimed === false) return '<span class="flag no">profile unclaimed</span>';
+  return '';
+}
+function loadLocalSeo(){
+  api('/api/local-seo').then(function(r){
+    if (!r.ok) return;
+    var box = document.getElementById('ls-lanes');
+    var lane = function(title, items, doneBtn){
+      var h = '<div class="lane-h">' + esc(title) + ' (' + items.length + ')</div>';
+      if (!items.length) h += '<p class="note">Nothing here.</p>';
+      items.forEach(function(it){
+        h += '<div class="lane-row"><div class="m"><b>' + esc(it.business_name) + '</b> · ' + esc(it.kind === 'gbp' ? 'Google Business Profile' : it.kind) + (it.notes ? '<br><span style="color:var(--dim);font-size:13px">' + esc(it.notes) + '</span>' : '') + '<br>' + lsFlagsHtml(it.flags) + '</div>' +
+          (doneBtn ? '<button class="btn sm primary" data-ls-done="' + esc(it.id) + '" type="button">Mark done → Tracking</button>' : '') + '</div>';
+      });
+      return h;
+    };
+    box.innerHTML = lane('To-do', r.j.todo || [], true) + lane('Tracking', r.j.tracking || [], false);
+  }).catch(function(){});
+}
+document.getElementById('ls-lanes').addEventListener('click', function(e){
+  var btn = e.target.closest('button[data-ls-done]');
+  if (!btn) return;
+  api('/api/local-seo/' + btn.dataset.lsDone + '/done', { method: 'POST', body: JSON.stringify({}) })
+    .then(function(r){ r.ok ? (loadLocalSeo(), loadHome()) : alert('Failed: ' + (r.j.error || 'unknown error')); });
+});
+document.getElementById('ls-add').addEventListener('click', function(){
+  var name = document.getElementById('ls-name').value.trim();
+  if (!name) { alert('Business name required.'); return; }
+  api('/api/local-seo', { method: 'POST', body: JSON.stringify({ business_name: name, kind: document.getElementById('ls-kind').value, notes: document.getElementById('ls-notes').value.trim() }) })
+    .then(function(r){
+      if (!r.ok) { alert('Failed: ' + (r.j.error || 'unknown error')); return; }
+      document.getElementById('ls-name').value = ''; document.getElementById('ls-notes').value = '';
+      loadLocalSeo(); loadHome();
+    });
+});
+function loadBots(){
+  api('/api/bots').then(function(r){
+    if (!r.ok) return;
+    var box = document.getElementById('bot-list');
+    var bots = r.j.bots || [];
+    if (!bots.length) { box.innerHTML = '<p class="note">No bots in the back-end yet. Add one when a build starts — it shows as pending until it goes live.</p>'; return; }
+    box.innerHTML = bots.map(function(b){
+      var chip = b.status === 'live' ? 'paid' : (b.status === 'down' ? 'void' : 'open');
+      var dot = b.status === 'live' ? 'green' : (b.status === 'down' ? 'red' : 'gray');
+      return '<div class="lane-row"><span class="dot ' + dot + '"></span><div class="m"><b>' + esc(b.company) + '</b> — ' + esc(b.name) + ' · ' + esc(b.platform) + (b.notes ? '<br><span style="color:var(--dim);font-size:13px">' + esc(b.notes) + '</span>' : '') + '</div>' +
+        '<span class="chip ' + chip + '">' + esc(b.status) + '</span>' +
+        (b.status !== 'live' ? '<button class="btn sm" data-bot-status="live" data-bot-id="' + esc(b.id) + '" type="button">Mark live</button>' : '') +
+        (b.status !== 'down' ? '<button class="btn sm danger" data-bot-status="down" data-bot-id="' + esc(b.id) + '" type="button">Mark down</button>' : '') +
+        (b.status !== 'pending' ? '<button class="btn sm" data-bot-status="pending" data-bot-id="' + esc(b.id) + '" type="button">Back to pending</button>' : '') +
+        '</div>';
+    }).join('');
+  }).catch(function(){});
+}
+document.getElementById('bot-list').addEventListener('click', function(e){
+  var btn = e.target.closest('button[data-bot-status]');
+  if (!btn) return;
+  api('/api/bots/' + btn.dataset.botId + '/status', { method: 'POST', body: JSON.stringify({ status: btn.dataset.botStatus }) })
+    .then(function(r){ r.ok ? (loadBots(), loadHome()) : alert('Failed: ' + (r.j.error || 'unknown error')); });
+});
+document.getElementById('bot-add').addEventListener('click', function(){
+  var company = document.getElementById('bot-company').value.trim();
+  var name = document.getElementById('bot-name').value.trim();
+  if (!company || !name) { alert('Company and bot name are required.'); return; }
+  api('/api/bots', { method: 'POST', body: JSON.stringify({ company: company, name: name, platform: document.getElementById('bot-platform').value, notes: document.getElementById('bot-notes').value.trim() }) })
+    .then(function(r){
+      if (!r.ok) { alert('Failed: ' + (r.j.error || 'unknown error')); return; }
+      document.getElementById('bot-company').value = ''; document.getElementById('bot-name').value = ''; document.getElementById('bot-notes').value = '';
+      loadBots(); loadHome();
+    });
+});
+function renderCustomers(){
+  var q = document.getElementById('cust-search').value.trim().toLowerCase();
+  var chips = document.getElementById('cust-filters');
+  chips.innerHTML = '<button class="fchip' + (custFilter === 'All' ? ' sel' : '') + '" data-cf="All" type="button">All</button>' +
+    custProducts.map(function(p){ return '<button class="fchip' + (custFilter === p ? ' sel' : '') + '" data-cf="' + esc(p) + '" type="button">' + esc(p) + '</button>'; }).join('');
+  var list = document.getElementById('cust-list');
+  var visible = 0, h = '';
+  custData.forEach(function(c){
+    if (custFilter !== 'All' && (c.products || []).indexOf(custFilter) === -1) return;
+    if (q && (c.displayName + ' ' + (c.email || '') + ' ' + (c.contactName || '')).toLowerCase().indexOf(q) === -1) return;
+    visible++;
+    var has = ((c.products || []).join(', ') || '—') + (c.sites.length ? ' · ' + c.sites.map(function(s){ return s.name; }).join(', ') : '');
+    h += '<div class="cust"><div class="cn">' + esc(c.displayName) + '</div>' +
+      '<div class="cm">' + esc(c.email || 'no email') + (c.contactName ? ' · ' + esc(c.contactName) : '') + (c.phone ? ' · ' + esc(c.phone) : '') + '</div>' +
+      '<div class="crow"><span>Has: <b>' + esc(has) + '</b></span>' +
+      '<span>Outstanding: <b>' + c.outstanding.count + ' · $' + (c.outstanding.amountCents / 100).toFixed(0) + '</b></span>' +
+      '<span>Before: <b>' + c.before.pastInvoices + ' past invoices</b></span></div>' +
+      (c.notes ? '<p class="note">' + esc(c.notes) + '</p>' : '') +
+      '<div class="mactions" style="justify-content:flex-start"><button class="btn sm" data-cust-edit="' + esc(c.id) + '" type="button">Edit / products</button></div></div>';
+  });
+  list.innerHTML = h;
+  document.getElementById('cust-no-results').style.display = visible ? 'none' : 'block';
+}
+function loadCustomers(){
+  api('/api/customers').then(function(r){
+    if (!r.ok) return;
+    custData = r.j.customers || [];
+    custProducts = r.j.products || [];
+    renderCustomers();
+  }).catch(function(){});
+}
+document.getElementById('cust-search').addEventListener('input', renderCustomers);
+document.getElementById('cust-filters').addEventListener('click', function(e){
+  var chip = e.target.closest('[data-cf]');
+  if (!chip) return;
+  custFilter = chip.dataset.cf;
+  renderCustomers();
+});
+document.getElementById('cust-list').addEventListener('click', function(e){
+  var btn = e.target.closest('button[data-cust-edit]');
+  if (!btn) return;
+  openCustomer(btn.dataset.custEdit);
+});
+function openCustomer(id){
+  var c = id ? custData.find(function(x){ return x.id === id; }) : null;
+  editingCustId = id || null;
+  document.getElementById('cust-title').textContent = c ? 'Edit customer' : 'Add customer';
+  document.getElementById('c-name').value = c ? c.displayName : '';
+  document.getElementById('c-contact').value = c ? (c.contactName || '') : '';
+  document.getElementById('c-email').value = c ? (c.email || '') : '';
+  document.getElementById('c-phone').value = c ? (c.phone || '') : '';
+  document.getElementById('c-notes').value = c ? (c.notes || '') : '';
+  document.getElementById('c-products').innerHTML = custProducts.map(function(p){
+    var on = c && (c.products || []).indexOf(p) !== -1;
+    return '<label><input type="checkbox" value="' + esc(p) + '"' + (on ? ' checked' : '') + ' /> ' + esc(p) + '</label>';
+  }).join('');
+  document.getElementById('customer-modal').classList.add('show');
+}
+document.getElementById('cust-add').addEventListener('click', function(){ openCustomer(null); });
+document.getElementById('cust-cancel').addEventListener('click', function(){ document.getElementById('customer-modal').classList.remove('show'); });
+document.getElementById('customer-modal').addEventListener('click', function(e){ if (e.target === this) this.classList.remove('show'); });
+document.getElementById('cust-save').addEventListener('click', function(){
+  var products = Array.prototype.slice.call(document.querySelectorAll('#c-products input:checked')).map(function(el){ return el.value; });
+  var body = {
+    display_name: document.getElementById('c-name').value.trim(),
+    contact_name: document.getElementById('c-contact').value.trim(),
+    email: document.getElementById('c-email').value.trim(),
+    phone: document.getElementById('c-phone').value.trim(),
+    notes: document.getElementById('c-notes').value.trim(),
+    products: products,
+  };
+  if (!body.display_name) { alert('Name is required.'); return; }
+  var p = editingCustId
+    ? api('/api/customers/' + editingCustId, { method: 'PUT', body: JSON.stringify(body) })
+    : api('/api/customers', { method: 'POST', body: JSON.stringify(body) });
+  p.then(function(r){
+    if (!r.ok) { alert('Failed: ' + (r.j.error || 'unknown error')); return; }
+    document.getElementById('customer-modal').classList.remove('show');
+    loadCustomers(); loadHome();
+  });
+});
+function loadMockups(){
+  api('/api/mockups').then(function(r){
+    if (!r.ok) return;
+    var box = document.getElementById('mockup-list');
+    var ms = r.j.mockups || [];
+    if (!ms.length) { box.innerHTML = '<p class="note">No mock-ups tracked yet.</p>'; return; }
+    box.innerHTML = ms.map(function(m){
+      var chip = m.status === 'live' ? 'paid' : (m.status === 'approved' ? 'sent' : 'open');
+      return '<div class="site" data-id="' + esc(m.id) + '"><button class="site-head">' + esc(m.name) + ' <span class="chip ' + chip + '">' + esc(m.status) + '</span><span class="chev">▼</span></button>' +
+        '<div class="site-body">' +
+        (m.client ? '<div class="row"><span class="k">Client</span><span class="v">' + esc(m.client) + '</span></div>' : '') +
+        (m.url ? '<a class="url" href="' + esc(m.url) + '" target="_blank" rel="noopener">' + esc(m.url.replace(/^https?:\/\//, '')) + ' →</a>' : '<p class="note">No preview URL yet.</p>') +
+        (m.notes ? '<p class="note">' + esc(m.notes) + '</p>' : '') +
+        '<div class="actions"><button class="btn sm" data-mu-status="changes" type="button">Mark needs-changes</button><button class="btn sm" data-mu-status="approved" type="button">Mark approved</button><button class="btn sm primary" data-mu-status="live" type="button">Mark live</button></div>' +
+        '</div></div>';
+    }).join('');
+  }).catch(function(){});
+}
+document.getElementById('mockup-list').addEventListener('click', function(e){
+  var head = e.target.closest('.site-head');
+  if (head) { head.closest('.site').classList.toggle('open'); return; }
+  var btn = e.target.closest('button[data-mu-status]');
+  if (!btn) return;
+  var id = btn.closest('.site').dataset.id;
+  api('/api/mockups/' + id + '/status', { method: 'POST', body: JSON.stringify({ status: btn.dataset.muStatus }) })
+    .then(function(r){ r.ok ? (loadMockups(), loadHome()) : alert('Failed: ' + (r.j.error || 'unknown error')); });
+});
+document.getElementById('mu-add').addEventListener('click', function(){
+  var name = document.getElementById('mu-name').value.trim();
+  if (!name) { alert('Name is required.'); return; }
+  api('/api/mockups', { method: 'POST', body: JSON.stringify({ name: name, client: document.getElementById('mu-client').value.trim(), url: document.getElementById('mu-url').value.trim(), notes: document.getElementById('mu-notes').value.trim() }) })
+    .then(function(r){
+      if (!r.ok) { alert('Failed: ' + (r.j.error || 'unknown error')); return; }
+      document.getElementById('mu-name').value = ''; document.getElementById('mu-client').value = ''; document.getElementById('mu-url').value = ''; document.getElementById('mu-notes').value = '';
+      loadMockups(); loadHome();
+    });
+});
+function loadMrtv(){
+  api('/api/mrtv/customers').then(function(r){
+    if (!r.ok) return;
+    var box = document.getElementById('mrtv-list');
+    var cs = r.j.customers || [];
+    if (!cs.length) { box.innerHTML = '<p class="note">No M.R. TV customers yet. Add one when they sign up — start is the invoice date, end is +1 year (or +1 month).</p>'; return; }
+    box.innerHTML = cs.map(function(c){
+      var dl = c.daysLeft;
+      var cls = dl === null ? 'tbd' : (dl < 0 ? 'over' : (dl <= 30 ? 'soon' : ''));
+      return '<div class="lane-row"><div class="m"><b>' + esc(c.name) + '</b> · ' + esc(c.plan) + ' · ' + esc(c.email || 'no email') + '<br><span style="color:var(--dim);font-size:13px">' + esc(c.startDate || '') + ' → ' + esc(c.endDate || '') + '</span></div>' +
+        '<span class="v ' + cls + '" style="font-weight:700;font-size:17px">' + (dl === null ? '—' : dl + ' days left') + '</span></div>';
+    }).join('');
+  }).catch(function(){});
+}
+document.getElementById('tv-add').addEventListener('click', function(){
+  var name = document.getElementById('tv-name').value.trim();
+  if (!name) { alert('Name is required.'); return; }
+  api('/api/mrtv/customers', { method: 'POST', body: JSON.stringify({ name: name, email: document.getElementById('tv-email').value.trim(), plan: document.getElementById('tv-plan').value, start_date: document.getElementById('tv-start').value || null, notes: document.getElementById('tv-notes').value.trim() }) })
+    .then(function(r){
+      if (!r.ok) { alert('Failed: ' + (r.j.error || 'unknown error')); return; }
+      document.getElementById('tv-name').value = ''; document.getElementById('tv-email').value = ''; document.getElementById('tv-start').value = ''; document.getElementById('tv-notes').value = '';
+      loadMrtv(); loadHome();
+    });
+});
+
 function load(){
   api('/api/sites').then(function(r){
     if (!r.ok) return;
@@ -812,6 +1435,8 @@ function load(){
     render();
     loadUpcoming();
     loadAudits();
+    loadHome();
+    showView((location.hash || '#home').slice(1));
     return api('/api/status');
   }).then(function(r){
     if (!r || !r.ok) return;
