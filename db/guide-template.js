@@ -3,9 +3,9 @@
 // per finding, each with concrete fix steps matched to the finding's theme.
 // The draft is a STARTING POINT — Ryan reviews and edits it in the
 // dashboard before it is ever marked ready or sent. Guide text is never
-// auto-sent. Platform is detected from the findings/trackers where the
-// audit names one; otherwise it says so and the steps name the platform
-// variants (Shopify / WordPress / custom).
+// auto-sent. Platform comes from the order form's store-type answer when
+// the audit has one; otherwise it is detected from the findings/trackers
+// where the audit names one, and says so when it cannot tell.
 //
 // Effort notes come from the 55-audit analysis (2026-10-27): banner +
 // gating the stack is 1–3h on Shopify/WooCommerce, 3–6h on a custom build;
@@ -126,7 +126,22 @@ function fallbackTheme() {
   };
 }
 
+// The visitor's own answer from the order form (Ryan 2026-10-27): the
+// store type they picked is worth more than detection — the guide is
+// tailored to it. 'unknown' (they weren't sure) falls back to detection
+// from the findings.
+const STORE_TYPE_DISPLAY = {
+  shopify: "Shopify",
+  woocommerce: "WordPress / WooCommerce",
+  wix: "Wix",
+  squarespace: "Squarespace",
+  custom: "Custom site",
+};
+const STORE_TYPES = Object.keys(STORE_TYPE_DISPLAY).concat(["unknown"]);
+
 function detectPlatform(audit) {
+  const st = String(audit.storeType || "").toLowerCase();
+  if (STORE_TYPE_DISPLAY[st]) return STORE_TYPE_DISPLAY[st];
   const hay = JSON.stringify(audit).toLowerCase();
   if (hay.includes("shopify")) return "Shopify";
   if (hay.includes("woocommerce") || hay.includes("wordpress") || hay.includes("jetpack")) return "WordPress / WooCommerce";
@@ -178,4 +193,4 @@ function buildGuideDraft(audit) {
   return { platform, body: lines.join("\n") };
 }
 
-module.exports = { buildGuideDraft, detectPlatform, themeFor };
+module.exports = { buildGuideDraft, detectPlatform, themeFor, STORE_TYPE_DISPLAY, STORE_TYPES };

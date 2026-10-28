@@ -50,7 +50,7 @@ function rowToAudit(r) {
     date: r.audit_date ? r.audit_date.toISOString().slice(0, 10) : null,
     scope: r.audit_scope, verdict: r.verdict, thin: r.is_thin,
     score: r.score, label: r.label, unlockStatus: r.unlock_status,
-    guideStatus: r.guide_status, fixStatus: r.fix_status,
+    guideStatus: r.guide_status, fixStatus: r.fix_status, storeType: r.store_type,
     counts: { critical: r.critical, warning: r.warning, info: r.info },
     trackers: r.trackers,
   };
@@ -65,7 +65,7 @@ async function listAudits(pool, q) {
   }
   const { rows } = await pool.query(
     `SELECT a.id, a.domain, a.masked_domain, a.audit_date, a.audit_scope, a.verdict,
-            a.is_thin, a.score, a.label, a.unlock_status, a.guide_status, a.fix_status,
+            a.is_thin, a.score, a.label, a.unlock_status, a.guide_status, a.fix_status, a.store_type,
             COUNT(f.id) FILTER (WHERE f.kind = 'issue' AND f.severity = 'critical' AND f.status = 'open')::int AS critical,
             COUNT(f.id) FILTER (WHERE f.kind = 'issue' AND f.severity = 'warning' AND f.status = 'open')::int AS warning,
             COUNT(f.id) FILTER (WHERE f.kind = 'issue' AND f.severity = 'info' AND f.status = 'open')::int AS info,
@@ -81,7 +81,7 @@ async function listAudits(pool, q) {
 async function getAudit(pool, id) {
   const { rows } = await pool.query(
     `SELECT id, domain, masked_domain, audit_date, audit_scope, verdict,
-            is_thin, score, label, unlock_status, guide_status, fix_status, notes
+            is_thin, score, label, unlock_status, guide_status, fix_status, notes, store_type
      FROM audits WHERE id = $1`,
     [id]);
   if (!rows.length) return null;
@@ -106,7 +106,7 @@ async function getAudit(pool, id) {
     date: a.audit_date ? a.audit_date.toISOString().slice(0, 10) : null,
     scope: a.audit_scope, verdict: a.verdict, thin: a.is_thin,
     score: a.score, label: a.label, unlockStatus: a.unlock_status,
-    guideStatus: a.guide_status, fixStatus: a.fix_status, notes: a.notes,
+    guideStatus: a.guide_status, fixStatus: a.fix_status, notes: a.notes, storeType: a.store_type,
     counts, trackers, issues,
   };
 }

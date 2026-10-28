@@ -26,7 +26,7 @@ const crypto = require("crypto");
 const { getPool, pgEnabled } = require("./pg");
 const { PRICES, LINKS, unlockAfterPurchase, fixAmountCents } = require("./billing");
 const { scoreFor } = require("./audits");
-const { buildGuideDraft } = require("./guide-template");
+const { buildGuideDraft, STORE_TYPE_DISPLAY, STORE_TYPES } = require("./guide-template");
 const {
   stripeCall, findOrCreateCustomer, sendMail, fetchBuffer,
 } = require("../invoices");
@@ -46,10 +46,20 @@ function isEmail(s) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || ""));
 async function getAuditRow(pool, id) {
   const { rows } = await pool.query(
     `SELECT id, domain, masked_domain, audit_date, audit_scope, verdict,
-            is_thin, score, label, unlock_status, guide_status, fix_status, notes
+            is_thin, score, label, unlock_status, guide_status, fix_status, notes, store_type
      FROM audits WHERE id = $1`,
     [id]);
   return rows[0] || null;
+}
+
+// Order form (Ryan 2026-10-27): "example.com", "https://shop.example.com/"
+// and "www.example.com/path" all mean the same domain.
+function normalizeDomain(website) {
+  let w = String(website || "").trim().toLowerCase();
+  w = w.replace(/^https?:\/\//, "").replace(/^www\./, "");
+  w = w.split(/[/?#]/)[0].trim();
+  if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(w)) return null;
+  return w;
 }
 
 // Score rubric, one place (same as build_data.py / audits.scoreFor):
@@ -104,7 +114,15 @@ function reportEmailBody(a) {
   }
   L.push("How scores work: 100 − 12 per critical issue − 5 per warning (info = 0). 85+ Healthy, 70–84 Fair, below 70 Needs Attention. Scores are computed from the findings; the audit itself assigned no numeric score.");
   L.push("");
-  L.push("Want the fix guide — exactly how to fix each finding above? It's $25, or $40 bundled with this audit if you buy both upfront. Reply to this email and we will send the link.");
+  // Guide upsell — point 1 of 2 (the other is the guide delivery email).
+  // The $25 guide is also sold as a $40 bundle upfront; the link is the
+  // payment link when Stripe has it, otherwise reply-for-link/invoice.
+  if (LINKS.guide) {
+    L.push("Want the fix guide — exactly how to fix each finding above? It's $25: " + LINKS.guide);
+  } else {
+    L.push("Want the fix guide — exactly how to fix each finding above? It's $25 — reply to this email and we'll send the payment link or an invoice.");
+  }
+  // Hire-us-to-fix — offered right after the audit (point 1 of 2).
   L.push("Want us to fix it for you? $100/hour, $200 minimum, estimate first — reply and we will scope it.");
   L.push("");
   L.push("— Ryan Sizemore, Apex King Digital · hello@apexkingdigital.com · apexkingdigital.com");
@@ -137,7 +155,7 @@ async function billingState(pool, auditId) {
     audit: {
       id: row.id, domain: row.domain, maskedDomain: row.masked_domain,
       unlockStatus: row.unlock_status, guideStatus: row.guide_status,
-      fixStatus: row.fix_status, notes: row.notes,
+      fixStatus: row.fix_status, notes: row.notes, storeType: row.store_type,
     },
     purchases, guide: guides[0] || null, quotes, deliveries,
     links: { audit: LINKS.audit, guide: LINKS.guide, bundle: LINKS.bundle },
@@ -412,7 +430,11 @@ function mountAuditBilling(app, authRequired) {
           "Hi,\n\n" +
           "Your Tracking Fix Guide for " + row.masked_domain + " is below, and attached as a file to keep.\n" +
           "You can also read it on its report page (unlocked for you): " + link + "\n\n" +
-          "---\n\n" + body + "\n",
+          "---\n\n" + body + "\n\n" +
+          "---\n\n" +
+          // Hire-us-to-fix — offered again after the guide (point 2 of 2).
+          "Want us to do the fixes for you? $100/hour, $200 minimum, estimate first — reply to this email and we will scope it.\n\n" +
+          "— Ryan Sizemore, Apex King Digital · hello@apexkingdigital.com · apexkingdigital.com\n",
         attachments: [{ filename: "Tracking-Fix-Guide-" + req.params.id + ".md", content: body }],
       });
       if (!sent) return res.status(502).json({ error: "email failed (SMTP not configured)" });
@@ -526,14 +548,21 @@ function mountAuditBilling(app, authRequired) {
         "SELECT COALESCE(MAX(CAST(SUBSTRING(id FROM 2) AS INTEGER)), 0) AS m FROM audits WHERE id ~ '^a[0-9]+$'");
       const id = "a" + String((mx[0].m || 0) + 1).padStart(3, "0");
       const { maskDomain } = require("./audits");
+      const storeType = String(b.store_type || "").toLowerCase();
+      if (storeType && !STORE_TYPES.includes(storeType)) {
+        return res.status(400).json({ error: "store_type must be one of: " + STORE_TYPES.join(", ") });
+      }
       const issues = Array.isArray(b.issues) ? b.issues : [];
       const trackers = Array.isArray(b.trackers) ? b.trackers : [];
-      const { thin, score, label } = scoreFor(issues, b.verdict || null);
+      // No findings yet = pending shell, not a 100/100: score NULL until
+      // Ryan adds findings from the card (recomputeScore fills it in).
+      const scored = scoreFor(issues, b.verdict || null);
+      const { thin, score, label } = issues.length ? scored : { thin: false, score: null, label: "Pending" };
       await pool.query(
-        `INSERT INTO audits (id, domain, masked_domain, audit_date, audit_scope, verdict, is_thin, score, label)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        `INSERT INTO audits (id, domain, masked_domain, audit_date, audit_scope, verdict, is_thin, score, label, store_type)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
         [id, domain, maskDomain(domain), b.audit_date || null, String(b.audit_scope || "").slice(0, 300) || null,
-         String(b.verdict || "").slice(0, 500) || null, thin, score, label]);
+         String(b.verdict || "").slice(0, 500) || null, thin, score, label, storeType || null]);
       let order = 0;
       for (const iss of issues) {
         if (!iss.text || !["critical", "warning", "info"].includes(iss.severity)) continue;
@@ -649,6 +678,10 @@ function mountAuditBilling(app, authRequired) {
         const { rows: fr } = await pool.query(
           "SELECT kind, severity, name, text, status FROM audit_findings WHERE audit_id = $1 ORDER BY sort_order",
           [a.id]);
+        // Pending shells (created from an order, no findings yet) stay
+        // off the public side until Ryan audits them — an empty audit
+        // would otherwise score a false 100.
+        if (!fr.length) continue;
         out.push({
           id: a.id, domain: a.domain,
           date: a.audit_date ? a.audit_date.toISOString().slice(0, 10) : null,
@@ -690,6 +723,119 @@ function mountAuditBilling(app, authRequired) {
       if (!rows.length) return res.status(404).json({ error: "not found" });
       res.json({ id: req.params.id, domain: rows[0].masked_domain, guide: rows[0].body, deliveredAt: rows[0].delivered_at });
     } catch (e) { res.status(404).json({ error: "not found" }); }
+  });
+
+  // ---------- order flow (Ryan 2026-10-27) ----------
+  // Public form on the tool: website URL + store type -> payment choice
+  // (audit $25 / bundle $40) -> pay at Stripe -> audit delivered ->
+  // guide upsell -> hire-us-to-fix at both points. The order is stored
+  // here and Ryan is emailed; the payment itself happens at Stripe
+  // (the link collects the website), and Ryan matches the Stripe
+  // notification to the stored order, then records the purchase on the
+  // audit. No webhook, no auto-charge, no client data leaves the
+  // dashboard except the notification email to Ryan.
+  app.options("/api/public/audits/orders", (req, res) => {
+    res.setHeader("Access-Control-Allow-Origin", PUBLIC_ORIGIN);
+    res.setHeader("Access-Control-Allow-Methods", "POST");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.status(204).end();
+  });
+  app.post("/api/public/audits/orders", async (req, res) => {
+    res.setHeader("Access-Control-Allow-Origin", PUBLIC_ORIGIN);
+    try {
+      if (!pgEnabled()) return res.status(503).json({ error: "orders unavailable (Postgres not configured)" });
+      const pool = getPool();
+      const b = req.body || {};
+      const domain = normalizeDomain(b.website);
+      if (!domain) return res.status(400).json({ error: "enter a valid website URL, e.g. example.com" });
+      const storeType = String(b.store_type || "").toLowerCase();
+      if (!STORE_TYPES.includes(storeType)) {
+        return res.status(400).json({ error: "pick what kind of store it is" });
+      }
+      const choice = String(b.choice || "");
+      if (!["audit", "bundle"].includes(choice)) {
+        return res.status(400).json({ error: "pick audit ($25) or bundle ($40)" });
+      }
+      const paymentUrl = LINKS[choice];
+      if (!paymentUrl) {
+        return res.status(400).json({ error: choice === "bundle"
+          ? "bundle checkout is still being set up — pick the $25 audit for now, or email hello@apexkingdigital.com and we'll bundle it for you"
+          : "audit checkout is unavailable right now — email hello@apexkingdigital.com" });
+      }
+      const buyerEmail = cleanEmail(b.buyer_email);
+      if (buyerEmail && !isEmail(buyerEmail)) return res.status(400).json({ error: "that email address doesn't look right" });
+      const { rows } = await pool.query(
+        `INSERT INTO audit_orders (website, domain, store_type, choice, buyer_email)
+         VALUES ($1,$2,$3,$4,$5) RETURNING id, domain, store_type, choice, created_at`,
+        [String(b.website).slice(0, 300), domain, storeType, choice, buyerEmail || null]);
+      const o = rows[0];
+      await sendMail({
+        to: COPY_EMAIL,
+        subject: "New tracking audit order — " + domain + " (" + choice + ", " + (STORE_TYPE_DISPLAY[storeType] || storeType) + ")",
+        text:
+          "A visitor ordered a tracking audit from the public tool.\n\n" +
+          "Website: " + domain + " (typed: " + String(b.website).slice(0, 300) + ")\n" +
+          "Store type: " + (STORE_TYPE_DISPLAY[storeType] || storeType) + "\n" +
+          "Choice: " + choice + " — $" + (PRICES[choice].amountCents / 100) + "\n" +
+          "Buyer email: " + (buyerEmail || "(not given — Stripe checkout collects it)") + "\n" +
+          "Order: " + o.id + " · " + o.created_at + "\n\n" +
+          "Next: when the Stripe payment notification arrives, match it to this order in the dashboard (Audits > Incoming orders), create the audit, and record the purchase on it. The report goes out only after payment is recorded.\n",
+      });
+      res.json({ ok: true, orderId: o.id, domain, paymentUrl });
+    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
+  });
+
+  app.get("/api/audits/orders", authRequired, async (req, res) => {
+    try {
+      if (needPg(req, res)) return;
+      const { rows } = await getPool().query(
+        `SELECT o.id, o.website, o.domain, o.store_type, o.choice, o.buyer_email,
+                o.status, o.audit_id, o.created_at, a.masked_domain
+         FROM audit_orders o LEFT JOIN audits a ON a.id = o.audit_id
+         ORDER BY o.created_at DESC LIMIT 100`);
+      res.json({ orders: rows });
+    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
+  });
+
+  app.post("/api/audits/orders/:id/create-audit", authRequired, async (req, res) => {
+    try {
+      if (needPg(req, res)) return;
+      const pool = getPool();
+      const { rows } = await pool.query("SELECT * FROM audit_orders WHERE id = $1", [req.params.id]);
+      if (!rows.length) return res.status(404).json({ error: "order not found" });
+      const o = rows[0];
+      if (o.status === "cancelled") return res.status(400).json({ error: "order was cancelled" });
+      if (o.audit_id) return res.json({ ok: true, auditId: o.audit_id, existing: true });
+      const { rows: ex } = await pool.query("SELECT id FROM audits WHERE domain = $1", [o.domain]);
+      if (ex.length) {
+        // Already listed (e.g. a re-order for a sampled site): link it.
+        await pool.query("UPDATE audit_orders SET audit_id = $1, status = 'audited' WHERE id = $2", [ex[0].id, o.id]);
+        return res.json({ ok: true, auditId: ex[0].id, existing: true });
+      }
+      const { rows: mx } = await pool.query(
+        "SELECT COALESCE(MAX(CAST(SUBSTRING(id FROM 2) AS INTEGER)), 0) AS m FROM audits WHERE id ~ '^a[0-9]+$'");
+      const id = "a" + String((mx[0].m || 0) + 1).padStart(3, "0");
+      const { maskDomain } = require("./audits");
+      const today = new Date().toISOString().slice(0, 10);
+      // Pending shell: no findings yet, so no score — it must NOT reach
+      // the public masked export (which would score an empty audit 100).
+      await pool.query(
+        `INSERT INTO audits (id, domain, masked_domain, audit_date, audit_scope, verdict, is_thin, score, label, store_type)
+         VALUES ($1,$2,$3,$4,'tracking, consent',NULL,FALSE,NULL,'Pending',$5)`,
+        [id, o.domain, maskDomain(o.domain), today, o.store_type]);
+      await pool.query("UPDATE audit_orders SET audit_id = $1, status = 'audited' WHERE id = $2", [id, o.id]);
+      res.json({ ok: true, auditId: id, existing: false });
+    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
+  });
+
+  app.post("/api/audits/orders/:id/cancel", authRequired, async (req, res) => {
+    try {
+      if (needPg(req, res)) return;
+      const { rowCount } = await getPool().query(
+        "UPDATE audit_orders SET status = 'cancelled' WHERE id = $1 AND status = 'ordered'", [req.params.id]);
+      if (!rowCount) return res.status(404).json({ error: "order not found or already handled" });
+      res.json({ ok: true, status: "cancelled" });
+    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
 
   // ---------- TEMPORARY test-audit endpoints (verification only — REMOVE before reporting done) ----------

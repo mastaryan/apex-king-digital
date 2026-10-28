@@ -201,12 +201,15 @@ try { require('./invoices').mountInvoices(app, authRequired); } catch (e) { cons
 // Upcoming / To-Do panel (approval-gated scheduled actions)
 try { require('./upcoming').mountUpcoming(app, authRequired); } catch (e) { console.error('upcoming mount', e.message); }
 
+// Audits money flows (Phase 2): purchases, report/guide delivery (pay
+// first, then send), fix quotes, re-audit, add-a-site, masked export,
+// order flow. Mounted BEFORE mountAudits on purpose: GET
+// /api/audits/orders must register before GET /api/audits/:id, or the
+// orders list would be swallowed as id="orders".
+try { require('./db/audit-billing').mountAuditBilling(app, authRequired); } catch (e) { console.error('audit billing mount', e.message); }
+
 // Audits (Phase 2, Tracking Health Score) — PG-backed, behind login
 try { require('./db/audits').mountAudits(app, authRequired); } catch (e) { console.error('audits mount', e.message); }
-
-// Audits money flows (Phase 2): purchases, report/guide delivery (pay
-// first, then send), fix quotes, re-audit, add-a-site, masked export.
-try { require('./db/audit-billing').mountAuditBilling(app, authRequired); } catch (e) { console.error('audit billing mount', e.message); }
 
 // ---------- TEMPORARY schema endpoint (Phase 2 money flows) ----------
 // TODO(money-flows): REMOVE after the one-time schema run on 2026-10-27.

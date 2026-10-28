@@ -138,6 +138,7 @@ footer button:hover{color:var(--silver)}
   <div class="upc" id="audits" style="margin-top:26px">
     <h2>Audits — Tracking Health Score</h2>
     <p class="sub">Full audit data, behind your login. The public tool shows masked domains only. Tap an audit to see its findings.</p>
+    <div id="audit-orders" style="margin-bottom:14px"></div>
     <input class="search" id="audit-search" type="text" placeholder="🔍 Search audits…" autocomplete="off" />
     <details style="margin-bottom:14px">
       <summary style="cursor:pointer;color:var(--dim);font-size:14px">+ Add a new audit (a new site joins the list)</summary>
@@ -498,7 +499,7 @@ document.getElementById('ed-save').addEventListener('click', function(){
 /* ---------- audits (Phase 2) ---------- */
 var audits = [];
 function auditScoreChip(a){
-  if (a.score === null) return '<span class="chip draft">limited</span>';
+  if (a.score === null) return a.label === 'Pending' ? '<span class="chip draft">pending</span>' : '<span class="chip draft">limited</span>';
   var cls = a.score >= 85 ? 'paid' : (a.score >= 70 ? 'open' : 'void');
   return '<span class="chip ' + cls + '">' + a.score + '/100 · ' + esc(a.label) + '</span>';
 }
@@ -548,6 +549,7 @@ function billingHtml(b){
   var a = b.audit, h = '';
   h += '<div class="audit-sec">Payment &amp; unlock</div>';
   h += '<div class="row"><span class="k">Status</span><span class="v">' + esc(a.unlockStatus) + ' · guide ' + esc(a.guideStatus) + ' · fix ' + esc(a.fixStatus) + '</span></div>';
+  if (a.storeType) h += '<div class="row"><span class="k">Store type</span><span class="v">' + esc({ shopify: 'Shopify', woocommerce: 'WordPress / WooCommerce', wix: 'Wix', squarespace: 'Squarespace', custom: 'Custom site', unknown: 'Not sure' }[a.storeType] || a.storeType) + ' (from the order form — the guide is tailored to it)</span></div>';
   if (b.purchases.length) {
     b.purchases.forEach(function(p){
       h += '<div class="row"><span class="k">' + esc(p.kind) + ' — $' + (p.amount_cents / 100).toFixed(2) + (p.is_test ? ' · test' : '') + '</span><span class="v" style="font-weight:400">' + esc(p.buyer_email || '—') + (p.stripe_ref ? ' · ' + esc(p.stripe_ref) : '') + '</span></div>';
@@ -581,7 +583,7 @@ function billingHtml(b){
     h += '<p class="note">No fix quotes yet. Work starts only after the invoice is paid.</p>';
   }
   h += '<div class="frow"><div class="field"><label>Hours (estimate)</label><input data-field="q-hours" type="number" min="0.5" step="0.5" placeholder="3" /></div>' +
-    '<div class="field"><label>Platform</label><input data-field="q-platform" placeholder="Shopify / custom" /></div>' +
+    '<div class="field"><label>Platform</label><input data-field="q-platform" placeholder="Shopify / custom" value="' + esc({ shopify: 'Shopify', woocommerce: 'WordPress / WooCommerce', wix: 'Wix', squarespace: 'Squarespace', custom: 'Custom site' }[a.storeType] || '') + '" /></div>' +
     '<div class="field"><label>Buyer email</label><input data-field="q-email" placeholder="buyer@example.com" /></div></div>' +
     '<div class="field"><label>Access needed</label><textarea data-field="q-access" rows="2" placeholder="GTM + theme access, checkout…"></textarea></div>' +
     '<div class="mactions" style="justify-content:flex-start"><button class="btn sm primary" data-bact="quote-create" type="button">Create draft invoice</button><button class="btn sm" data-bact="quote-create-test" type="button">Create test (to me)</button></div>';
@@ -732,6 +734,43 @@ document.getElementById('audit-list').addEventListener('click', function(e){
       .then(function(r){ r.ok ? done('Notes saved.', false) : fail(r); });
   }
 });
+/* Incoming orders from the public tool's order form — website + store
+   type + payment choice, waiting for the Stripe payment to land. Ryan
+   creates the audit from the order once the payment notification arrives,
+   then records the purchase on the audit; the report goes out after that. */
+function loadAuditOrders(){
+  var box = document.getElementById('audit-orders');
+  if (!box) return;
+  api('/api/audits/orders').then(function(r){
+    if (!r.ok) { box.innerHTML = ''; return; }
+    var open = (r.j.orders || []).filter(function(o){ return o.status === 'ordered'; });
+    if (!open.length) { box.innerHTML = ''; return; }
+    var h = '<div class="audit-sec">Incoming orders — ' + open.length + ' waiting on payment</div>';
+    open.forEach(function(o){
+      h += '<div class="invrow"><span class="chip open">' + esc(o.choice) + ' · $' + (o.choice === 'bundle' ? '40' : '25') + '</span><span><b>' + esc(o.domain || o.website) + '</b> · ' + esc({ shopify: 'Shopify', woocommerce: 'WooCommerce', wix: 'Wix', squarespace: 'Squarespace', custom: 'Custom', unknown: 'Not sure' }[o.store_type] || o.store_type) + ' · ' + esc(o.buyer_email || 'no email yet') + ' · ' + esc(String(o.created_at || '').slice(0, 10)) + '</span><span class="sp">' +
+        '<button class="btn sm primary" data-oact="create-audit" data-oid="' + esc(o.id) + '" type="button">Create audit</button>' +
+        '<button class="btn sm danger" data-oact="cancel" data-oid="' + esc(o.id) + '" type="button">Cancel</button></span></div>';
+    });
+    box.innerHTML = h;
+  }).catch(function(){});
+}
+document.getElementById('audit-orders').addEventListener('click', function(e){
+  var btn = e.target.closest('button[data-oact]');
+  if (!btn) return;
+  var oid = btn.dataset.oid;
+  if (btn.dataset.oact === 'create-audit') {
+    api('/api/audits/orders/' + oid + '/create-audit', { method: 'POST', body: JSON.stringify({}) })
+      .then(function(r){
+        if (!r.ok) { alert('Failed: ' + (r.j.error || 'unknown error')); return; }
+        alert(r.j.existing ? 'Linked to existing audit ' + r.j.auditId + '.' : 'Audit ' + r.j.auditId + ' created — add findings from its card, then record the purchase once Stripe confirms payment.');
+        loadAuditOrders(); loadAudits();
+      });
+  } else if (btn.dataset.oact === 'cancel') {
+    if (!confirm('Cancel this order?')) return;
+    api('/api/audits/orders/' + oid + '/cancel', { method: 'POST', body: JSON.stringify({}) })
+      .then(function(r){ r.ok ? loadAuditOrders() : alert('Failed: ' + (r.j.error || 'unknown error')); });
+  }
+});
 document.getElementById('aa-add').addEventListener('click', function(){
   var domain = document.getElementById('aa-domain').value.trim();
   var date = document.getElementById('aa-date').value || null;
@@ -747,6 +786,7 @@ document.getElementById('aa-add').addEventListener('click', function(){
     });
 });
 function loadAudits(){
+  loadAuditOrders();
   api('/api/audits').then(function(r){
     if (!r.ok) return;
     audits = r.j.audits || [];

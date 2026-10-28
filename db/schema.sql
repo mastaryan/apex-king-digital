@@ -247,3 +247,30 @@ CREATE TABLE IF NOT EXISTS audit_finding_events (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS audit_finding_events_audit_id_idx ON audit_finding_events (audit_id);
+
+-- ---------- Order flow (Ryan 2026-10-27 ~22:50) ----------
+-- Visitor: masked list -> order form (website URL + store type, so the
+-- platform is known) -> payment choice (audit $25 / bundle $40) -> pay
+-- -> audit delivered -> guide upsell ($25 via link or invoice) ->
+-- hire-us-to-fix offered at BOTH points (after the audit, and again
+-- after the guide). The store-type answer is stored with the audit so
+-- the fix guide / quote can be tailored to the platform.
+-- Other services (local SEO, GBP setup, website builds) stay on
+-- invoices — custom-priced, not fixed. NOTE: once Stripe's stablecoin
+-- method is enabled on the account, Stripe invoices can take crypto
+-- too — no separate crypto flow needed for those.
+ALTER TABLE audits ADD COLUMN IF NOT EXISTS store_type TEXT
+  CHECK (store_type IS NULL OR store_type IN ('shopify','woocommerce','wix','squarespace','custom','unknown'));
+CREATE TABLE IF NOT EXISTS audit_orders (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  website      TEXT NOT NULL,   -- as the visitor typed it
+  domain       TEXT,            -- normalized domain (lowercase, no scheme/www/path)
+  store_type   TEXT NOT NULL CHECK (store_type IN ('shopify','woocommerce','wix','squarespace','custom','unknown')),
+  choice       TEXT NOT NULL CHECK (choice IN ('audit','bundle')),
+  buyer_email  CITEXT,
+  status       TEXT NOT NULL DEFAULT 'ordered' CHECK (status IN ('ordered','audited','cancelled')),
+  audit_id     TEXT REFERENCES audits(id) ON DELETE SET NULL,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS audit_orders_domain_idx ON audit_orders (domain);
+CREATE INDEX IF NOT EXISTS audit_orders_status_idx ON audit_orders (status);
