@@ -178,6 +178,21 @@ async function refreshRecord(rec) {
   return rec;
 }
 
+// Refresh one site's stored invoice records from Stripe (same refresh the
+// invoice-list endpoint does). Returns true if any status changed. Terminal
+// statuses are never re-fetched; on a Stripe error the stored state is kept,
+// so a blip never hides rows that should still show.
+async function refreshSiteInvoices(site) {
+  site.invoices = site.invoices || [];
+  let changed = false;
+  for (const rec of site.invoices) {
+    const before = rec.status;
+    await refreshRecord(rec);
+    if (rec.status !== before) changed = true;
+  }
+  return changed;
+}
+
 // attachment bytes live next to the data file so companion/copy emails can
 // re-attach them after a restart; kept out of sites.json (size).
 function attachDir() {
@@ -457,4 +472,4 @@ function mountInvoices(app, authRequired) {
   });
 }
 
-module.exports = { mountInvoices, runGate, gateDecision };
+module.exports = { mountInvoices, runGate, gateDecision, refreshSiteInvoices };

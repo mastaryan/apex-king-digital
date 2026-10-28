@@ -25,6 +25,7 @@ const path = require("path");
 // after every file write when USE_POSTGRES=1.
 const store = require("./db/store");
 const loadSites = store.loadSites;
+const saveSites = store.saveSites;
 const loadApprovals = store.loadApprovals;
 const saveApprovals = store.saveApprovals;
 const loadReminderState = store.loadReminderState;
@@ -47,6 +48,14 @@ function kindLabel(kind) { return kind === "domainRenewal" ? "domain" : "hosting
 
 function invoicesForYear(site, year) {
   return (site.invoices || []).filter(r => !r.test && r.renewalDate && r.renewalDate.slice(0, 4) === year && r.status !== "deleted");
+}
+
+// Paid renewal (Ryan 2026-10-27): a real (non-test) invoice for this exact
+// renewal date shows paid in Stripe. Same rule as the reminders.py
+// paid-check. When true, the renewal's remaining panel rows are dropped
+// (below) — the gate-send row already flips to "done" on its own and stays.
+function isPaidRenewal(site, ds) {
+  return (site.invoices || []).some(r => !r.test && r.status === "paid" && r.renewalDate === ds);
 }
 
 function reminderStatus(key, approval, entry, daysToRenewal, fireDate, today) {
@@ -106,9 +115,11 @@ function buildRows(sites, approvals, reminderState, today) {
       const invs = invoicesForYear(site, year);
       const draftExists = invs.some(r => r.status === "draft");
       const sentExists = invs.some(r => ["open", "paid", "uncollectible", "void"].includes(r.status));
+      const paid = isPaidRenewal(site, ds);
 
       // Reminder rows — exist regardless of clientEmail (they fall back to Ryan).
-      for (const w of REMINDER_WINDOWS) {
+      // Paid renewal: no reminder rows — the renewal is done, nothing left to send.
+      if (!paid) for (const w of REMINDER_WINDOWS) {
         const fireDate = addDays(due, -w);
         const key = site.id + ":" + kind + ":" + w + ":" + ds;
         const approval = approvals[key] && approvals[key].status;
@@ -127,10 +138,12 @@ function buildRows(sites, approvals, reminderState, today) {
       }
 
       // Gate rows — only when the gate can run: clientEmail set, site not held.
+      // Paid renewal: the draft row goes too; the send row stays ONLY as its
+      // existing "done" state (it already flips to done once paid).
       if (hasEmail && !siteHeld) {
         const draftDate = addDays(due, -45);
         const draftKey = "gate:" + site.id + ":" + year + ":draft";
-        rows.push({
+        if (!paid) rows.push({
           key: draftKey, type: "gate-draft", date: isoDay(draftDate), siteId: site.id, siteName: site.name,
           kind, renewalDate: ds, days: null, recipient: site.clientEmail,
           title: "Draft $100 renewal invoice — " + site.name,
@@ -142,7 +155,7 @@ function buildRows(sites, approvals, reminderState, today) {
         const sendKey = "gate:" + site.id + ":" + year + ":send";
         const sendApproval = approvals[sendKey] && approvals[sendKey].status;
         const sendStatus = gateSendStatus(sendApproval, draftExists, sentExists, daysToRenewal, sendDate, today);
-        rows.push({
+        if (!paid || sendStatus === "done") rows.push({
           key: sendKey, type: "gate-send", date: isoDay(sendDate), siteId: site.id, siteName: site.name,
           kind, renewalDate: ds, days: null, recipient: site.clientEmail,
           title: "Send $100 renewal invoice — " + site.name,
@@ -153,8 +166,8 @@ function buildRows(sites, approvals, reminderState, today) {
         });
       }
 
-      // Renewal anchor row.
-      rows.push({
+      // Renewal anchor row. Paid renewal: no anchor — nothing left to track.
+      if (!paid) rows.push({
         key: "anchor:" + site.id + ":" + kind + ":" + ds, type: "anchor", date: ds,
         siteId: site.id, siteName: site.name, kind, renewalDate: ds, days: null,
         recipient: "", title: site.name + " " + kindLabel(kind) + " renews",
@@ -187,11 +200,26 @@ function computeRows(sites, approvals, reminderState, today) {
 }
 
 function mountUpcoming(app, authRequired) {
-  app.get("/api/upcoming", authRequired, (req, res) => {
+  // Refresh stored invoice statuses from Stripe before computing rows, so a
+  // payment shows up the moment Ryan opens the panel instead of waiting for
+  // the next cron refresh. Lazy require: invoices.js requires this module at
+  // top level, so a top-level require here would be a cycle.
+  async function refreshAllInvoices(sites) {
+    const { refreshSiteInvoices } = require("./invoices");
+    let changed = false;
+    for (const site of sites) {
+      if (await refreshSiteInvoices(site)) changed = true;
+    }
+    if (changed) await saveSites(sites);
+    return sites;
+  }
+
+  app.get("/api/upcoming", authRequired, async (req, res) => {
+    const sites = await refreshAllInvoices(loadSites());
     res.json({
       today: isoDay(todayDay()),
       windowDays: WINDOW_DAYS,
-      rows: computeRows(loadSites(), loadApprovals(), loadReminderState()),
+      rows: computeRows(sites, loadApprovals(), loadReminderState()),
     });
   });
 
@@ -219,6 +247,7 @@ function mountUpcoming(app, authRequired) {
       return res.status(400).json({ error: "action must be approve, hold, or clear" });
     }
     const sites = loadSites();
+    await refreshAllInvoices(sites);
     const approvals = loadApprovals();
     const reminderState = loadReminderState();
     const rows = computeRows(sites, approvals, reminderState);
