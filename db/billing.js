@@ -15,16 +15,15 @@ const PRICES = {
   bundle: { amountCents: 4000, label: "Audit + Fix Guide Bundle" },
 };
 
-// Payment links. The audit link exists; the guide + bundle links are
-// created through the Stripe connector once it is reauthorized (it
-// currently reports reauthorization_required) — null until then. The
-// dashboard and the public tool hide the guide/bundle buttons while null;
+// Payment links. All three exist; the guide + bundle links were created
+// in the Stripe Dashboard 2026-10-28 (connector writes were 403).
+// The dashboard and the public tool hide the guide/bundle buttons while null;
 // nothing in the unlock model depends on these URLs (purchases are
 // recorded manually in the dashboard with their Stripe reference).
 const LINKS = {
   audit: "https://buy.stripe.com/7sY6oH9zd5nR9tz2gQ4Ni00",
-  guide: null, // TODO: "Tracking Fix Guide" $25 payment link (Stripe connector)
-  bundle: null, // TODO: "Audit + Fix Guide Bundle" $40 payment link (Stripe connector)
+  guide: "https://buy.stripe.com/14AaEX5iXdUn8pvbRq4Ni01", // "Tracking Fix Guide" $25 prod_VWRDMSRid8pRnS
+  bundle: "https://buy.stripe.com/00wdR99zdbMf49fbRq4Ni02", // "Audit + Fix Guide Bundle" $40 prod_VWRFcFTPsiid7F
 };
 
 const FIX_RATE_CENTS_PER_HOUR = 10000; // $100/hr
