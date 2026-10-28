@@ -472,4 +472,7 @@ function mountInvoices(app, authRequired) {
   });
 }
 
-module.exports = { mountInvoices, runGate, gateDecision, refreshSiteInvoices };
+module.exports = {
+  mountInvoices, runGate, gateDecision, refreshSiteInvoices,
+  stripeCall, findOrCreateCustomer, sendMail, fetchBuffer,
+};
