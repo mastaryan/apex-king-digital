@@ -10,6 +10,8 @@
 // --remote POSTs to the dashboard's TEMPORARY /api/admin/audits/import
 // endpoint (runs on Render, where the DB is reachable) because this box
 // cannot open direct DB connections. API_TOKEN from env or .secrets.env.
+// NOTE: the endpoint was removed from server.js after the one-time import
+// on 2026-10-27 — re-add the route to use --remote again.
 "use strict";
 const fs = require("fs");
 const path = require("path");

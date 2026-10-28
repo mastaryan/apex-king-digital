@@ -84,25 +84,6 @@ app.get('/api/admin/compare', authRequired, async (req, res) => {
   }
 });
 
-// ---------- TEMPORARY Phase 2 audits import ----------
-// TODO(phase2): REMOVE /api/admin/audits/import before reporting Phase 2 done.
-// Admin-only (same auth as /api/sites). Runs ON the Render service because
-// this box cannot open direct DB connections. One-time load of audits.json
-// into the audits + audit_findings tables (repeatable truncate + reload).
-app.post('/api/admin/audits/import', authRequired, async (req, res) => {
-  try {
-    const { getPool } = require('./db/pg');
-    const { importAudits } = require('./db/audits-import');
-    const pool = getPool();
-    const schema = fs.readFileSync(path.join(__dirname, 'db', 'schema.sql'), 'utf8');
-    await pool.query(schema);
-    const report = await importAudits(pool, (req.body && req.body.audits) || []);
-    res.json({ ok: true, report });
-  } catch (e) {
-    res.status(500).json({ error: String(e.message || e).slice(0, 500) });
-  }
-});
-
 // ---------- sites store (centralized: db/store.js) ----------
 // Files are the source of truth during dual-write; the PG mirror updates
 // after every file write when USE_POSTGRES=1 (see db/store.js).
