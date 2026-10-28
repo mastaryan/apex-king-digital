@@ -112,6 +112,19 @@ footer button:hover{color:var(--silver)}
 .upc-done.held{background:rgba(233,185,73,.16);color:var(--amber);border-color:rgba(233,185,73,.35)}
 #upc-toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(16px);background:#1c1c22;border:1px solid var(--gold);color:#fff;font-weight:700;font-size:14px;padding:12px 20px;border-radius:999px;opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;z-index:999;max-width:calc(100vw - 32px);text-align:center}
 #upc-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.upc-card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+.upc-card.pastdue{border-color:var(--red)}
+.upc-card-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.upc-card-name{font-weight:700;font-size:16px;flex:1;min-width:180px}
+.upc-card-kind{font-size:12px;color:var(--dim);font-weight:400}
+.upc-card-due{font-size:13px;color:var(--dim)}
+.upc-card-due b{color:var(--silver)}
+.upc-card-status{font-size:14px;margin-top:6px}
+.upc-card-status .go{color:var(--green);font-weight:700}
+.upc-card-status .nogo{color:var(--amber);font-weight:700}
+.upc-steps-toggle{margin-top:10px}
+.upc-steps{margin-top:8px}
+.upc-steps .upc-row{margin-bottom:6px}
 .chip.approved,.chip.sent,.chip.done{background:rgba(52,209,123,.16);color:var(--green)}
 .chip.held,.chip.draft-ready{background:rgba(233,185,73,.16);color:var(--amber)}
 .chip.overdue{background:rgba(255,93,93,.14);color:var(--red)}
@@ -461,14 +474,96 @@ function renderUpcoming(){
   var list = document.getElementById('upc-list');
   var follow = document.getElementById('upc-follow');
   var followH = document.getElementById('upc-follow-h');
+  var cards = groupUpcomingRows(upcomingRows);
   var main = [], fu = [];
-  upcomingRows.forEach(function(r){
-    if (r.status === 'held' || r.status === 'overdue') fu.push(r); else main.push(r);
+  cards.forEach(function(c){
+    var rendered = upcCardHtml(c);
+    if (rendered.follow) fu.push(rendered.html); else main.push(rendered.html);
   });
-  list.innerHTML = main.length ? main.map(upcRowHtml).join('') : '<p class="note">Nothing scheduled in the next 45 days.</p>';
+  list.innerHTML = main.length ? main.join('') : '<p class="note">Nothing scheduled in the next 45 days.</p>';
   followH.classList.toggle('hidden', !fu.length);
-  follow.innerHTML = fu.map(upcRowHtml).join('');
+  follow.innerHTML = fu.join('');
 }
+// Group the flat Upcoming rows into one card per renewal (site + kind +
+// due date). Presentation only: same rows, same keys, same actions, same
+// approval state. Steps render with the existing upcRowHtml, so the
+// Approve/Hold/Clear actions, the clear modal, and the toast all work
+// exactly as before. Anchors are dropped — the card header carries the
+// due date. A card whose only step is a done gate-send is a paid renewal
+// (buildRows drops every other row when paid), so the card is dropped,
+// matching the existing paid-clear behavior.
+// FUTURE: category collapse (one card per group, e.g. Hosting, M.R. TV)
+// is a natural later step: group these cards by card.group before
+// rendering. Nothing in the card builder needs to change for that.
+var UPC_TYPE_RANK = { reminder: 0, 'gate-send': 1, 'gate-draft': 2 };
+function groupUpcomingRows(rows){
+  var byKey = {};
+  var order = [];
+  rows.forEach(function(r){
+    if (r.type === 'anchor') return;
+    var k = r.siteId + '|' + r.kind + '|' + r.renewalDate;
+    if (!byKey[k]) {
+      byKey[k] = { key: k, siteId: r.siteId, siteName: r.siteName, kind: r.kind, renewalDate: r.renewalDate, group: (r.kind === 'domainRenewal' ? 'domain' : 'hosting'), steps: [] };
+      order.push(k);
+    }
+    byKey[k].steps.push(r);
+  });
+  var cards = order.map(function(k){ return byKey[k]; }).filter(function(c){
+    return !(c.steps.length === 1 && c.steps[0].type === 'gate-send' && c.steps[0].status === 'done');
+  });
+  cards.forEach(function(c){
+    c.steps.sort(function(a, b){
+      if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+      return (UPC_TYPE_RANK[a.type] || 9) - (UPC_TYPE_RANK[b.type] || 9);
+    });
+  });
+  cards.sort(function(a, b){
+    if (a.renewalDate !== b.renewalDate) return a.renewalDate < b.renewalDate ? -1 : 1;
+    return a.siteName < b.siteName ? -1 : (a.siteName > b.siteName ? 1 : 0);
+  });
+  return cards;
+}
+function upcStepLabel(r){
+  if (r.type === 'reminder') return r.days + '-day reminder';
+  if (r.type === 'gate-send') return '$100 renewal invoice';
+  return 'invoice draft';
+}
+function upcCardStatus(c){
+  var pending = c.steps.filter(function(s){ return s.status === 'approved'; });
+  if (pending.length) {
+    var next = pending[0];
+    var when = next.date <= upcomingToday ? 'next run' : fmtDate(next.date);
+    var extra = pending.length > 1 ? ' (+' + (pending.length - 1) + ' more approved)' : '';
+    return '<span class="go">Next one going out: yes</span> — ' + esc(upcStepLabel(next)) + ' on ' + esc(when) + esc(extra);
+  }
+  var actionable = c.steps.some(function(s){ return s.actionable; });
+  if (actionable) return '<span class="nogo">Next one going out: no</span> — needs your approval.';
+  return 'Nothing pending.';
+}
+function upcCardHtml(c){
+  var n = daysUntil(c.renewalDate);
+  var dueLabel = n < 0 ? '<span class="chip overdue">PAST DUE</span>' : (n === 0 ? '<span class="chip scheduled">Due today</span>' : '<span class="chip scheduled">Due in ' + n + 'd</span>');
+  var follow = c.steps.some(function(s){ return s.status === 'held' || s.status === 'overdue'; });
+  var cls = 'upc-card' + (n < 0 ? ' pastdue' : '');
+  var kindWord = c.kind === 'domainRenewal' ? 'domain' : 'hosting';
+  var h = '<div class="' + cls + '" data-card="' + esc(c.key) + '">' +
+    '<div class="upc-card-head"><div class="upc-card-name">' + esc(c.siteName) + ' <span class="upc-card-kind">' + esc(kindWord) + '</span></div>' +
+    '<div class="upc-card-due">Due <b>' + esc(fmtDate(c.renewalDate)) + '</b> ' + dueLabel + '</div></div>' +
+    '<div class="upc-card-status">' + upcCardStatus(c) + '</div>' +
+    '<button class="btn sm upc-steps-toggle" data-steps-toggle>Hide steps</button>' +
+    '<div class="upc-steps">' + c.steps.map(upcRowHtml).join('') + '</div></div>';
+  return { html: h, follow: follow };
+}
+document.getElementById('upcoming').addEventListener('click', function(e){
+  var tgl = e.target.closest('button[data-steps-toggle]');
+  if (!tgl) return;
+  var card = tgl.closest('.upc-card');
+  if (!card) return;
+  var steps = card.querySelector('.upc-steps');
+  if (!steps) return;
+  var hidden = steps.classList.toggle('hidden');
+  tgl.textContent = hidden ? 'Show steps' : 'Hide steps';
+});
 function loadUpcoming(){
   api('/api/upcoming').then(function(r){
     if (!r.ok) return;
