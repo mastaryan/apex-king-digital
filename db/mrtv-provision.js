@@ -39,6 +39,11 @@ function panelKey() { return process.env.TVPLUS_API_KEY || ""; }
 function lineServer() { return process.env.LINE_SERVER_URL || "http://line.tvdeluxe.us"; }
 function cleanStr(s, n) { return String(s || "").trim().slice(0, n || 200); }
 function nyToday() { return new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }); }
+function addDaysISO(iso, n) {
+  const d = new Date(String(iso) + "T12:00:00");
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
 function fmtLongDate(iso) {
   const p = String(iso || "").split("-");
   const mon = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(p[1]) - 1] || "";
@@ -335,22 +340,53 @@ function mountMrtvProvision(app, authRequired) {
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
 
-  // Demo line (sub=99). Ticket mechanics still unconfirmed — the response
-  // says so, and the button carries the same note.
+  // Demo line (sub=99, ~24h). Ticket mechanics still unconfirmed — the
+  // response says so, and the button carries the same note. Accepts
+  // { pack, note, send_email }: pack must be one of the four templates
+  // (default USA no-adult); send_email fires the standard login email
+  // (demo wording, 24h expiry) to the customer's email via tv@.
   app.post("/api/mrtv/customers/:id/demo", authRequired, async (req, res) => {
     try {
       if (needPg(req, res)) return;
-      const { rows } = await getPool().query("SELECT id, name, lines FROM mrtv_customers WHERE id = $1", [req.params.id]);
+      const { rows } = await getPool().query("SELECT id, name, email, lines FROM mrtv_customers WHERE id = $1", [req.params.id]);
       if (!rows.length) return res.status(404).json({ error: "customer not found" });
       if (!panelKey()) return res.status(400).json({ error: "TVPLUS_API_KEY is not set in the Render env — add it, then redeploy." });
       const c = rows[0];
-      const d = await panelCall({ action: "new", type: "m3u", sub: "99", pack: String(PACK_USA_NO_ADULT), note: "DEMO " + c.name });
+      const b = req.body || {};
+      const pack = [PACK_USA_ADULT, PACK_USA_NO_ADULT, PACK_ALL_NO_ADULT, PACK_ALL_ADULT].indexOf(Number(b.pack)) >= 0
+        ? Number(b.pack) : PACK_USA_NO_ADULT;
+      const note = cleanStr(b.note, 200) || ("DEMO " + c.name);
+      const d = await panelCall({ action: "new", type: "m3u", sub: "99", pack: String(pack), note: note });
       if (!d.username || !d.password) throw new Error("panel returned no credentials");
+      const username = String(d.username), password = String(d.password);
       const lines = Array.isArray(c.lines) ? c.lines : [];
-      lines.push({ tv: "demo", type: "m3u", sub: 99, pack: PACK_USA_NO_ADULT, username: String(d.username), password: String(d.password), user_id: d.user_id || null, demo: true, created_at: new Date().toISOString() });
+      lines.push({ tv: "demo", type: "m3u", sub: 99, pack: pack, username: username, password: password, user_id: d.user_id || null, demo: true, note: note, created_at: new Date().toISOString() });
       await getPool().query("UPDATE mrtv_customers SET lines = $1::jsonb WHERE id = $2", [JSON.stringify(lines), c.id]);
+      let emailSent = false, emailError = null;
+      if (b.send_email) {
+        if (!c.email) { emailError = "no email on file"; }
+        else {
+          const filled = fillLoginEmail(LOGIN_TEMPLATE, {
+            firstName: String(c.name || "").split(" ")[0] || "there",
+            planDesc: "Demo — 24 hours",
+            expiry: fmtLongDate(addDaysISO(nyToday(), 1)),
+            tvLines: [{ username: username, password: password }],
+            serverUrl: lineServer(), tivimateEmail: null,
+            orderCode: "MR-" + String(c.id).slice(0, 8).toUpperCase(),
+          });
+          const ml = mailer();
+          if (!ml) { emailError = "SMTP not configured on server"; }
+          else {
+            try {
+              await ml.sendMail({ from: loginFrom(), replyTo: "tv@apexkingdigital.com", to: c.email, subject: filled.subject, text: filled.text });
+              emailSent = true;
+            } catch (e) { emailError = String(e.message || e).slice(0, 160); }
+          }
+        }
+      }
       res.json({
-        ok: true, username: String(d.username), password: String(d.password),
+        ok: true, username: username, password: password, pack: pack,
+        emailSent: emailSent, emailError: emailError,
         warn: "Demo ticket mechanics are still unconfirmed with the parent — verify the panel's demo ticket count after creating demos.",
       });
     } catch (e) { res.status(502).json({ error: String(e.message || e).slice(0, 300) }); }
