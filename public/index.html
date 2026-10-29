@@ -387,6 +387,7 @@ pre.report{white-space:pre-wrap;word-break:break-word;background:#0e0e11;border:
         <div class="frow">
           <div class="field"><label>Plan</label><select id="tv-plan" style="width:100%;background:#0e0e11;border:1px solid var(--line);border-radius:10px;color:var(--silver);font-size:15px;padding:10px 14px;font-family:inherit"><option value="yearly">Yearly (end = start + 1 year)</option><option value="monthly">Monthly (end = start + 1 month)</option></select></div>
           <div class="field"><label>Start date (invoice date)</label><input id="tv-start" type="date" /></div>
+          <div class="field"><label>Renewal amount ($)</label><input id="tv-amount" type="number" min="0" step="0.01" placeholder="10.00" /></div>
         </div>
         <div class="field"><label>Notes</label><textarea id="tv-notes" rows="2"></textarea></div>
         <div class="mactions" style="justify-content:flex-start"><button class="btn primary" id="tv-add" type="button">Add customer</button></div>
@@ -1723,7 +1724,11 @@ function loadMrtv(){
     box.innerHTML = cs.map(function(c){
       var dl = c.daysLeft;
       var cls = dl === null ? 'tbd' : (dl < 0 ? 'over' : (dl <= 30 ? 'soon' : ''));
-      return '<div class="lane-row"><div class="m"><b>' + esc(c.name) + '</b> · ' + esc(c.plan) + ' · ' + esc(c.email || 'no email') + '<br><span style="color:var(--dim);font-size:13px">' + esc(c.startDate || '') + ' → ' + esc(c.endDate || '') + '</span></div>' +
+      var amt = (c.renewalAmountCents === null || c.renewalAmountCents === undefined)
+        ? 'no amount' : '$' + (c.renewalAmountCents / 100).toFixed(2).replace(/\.00$/, '');
+      return '<div class="lane-row"><div class="m"><b>' + esc(c.name) + '</b> · ' + esc(c.plan) + ' · ' + esc(c.email || 'no email') + '<br><span style="color:var(--dim);font-size:13px">' + esc(c.startDate || '') + ' → ' + esc(c.endDate || '') + ' · ' + esc(amt) + '</span>' +
+        '<br><button class="btn" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-paid="' + c.id + '" data-tv-name="' + esc(c.name) + '" data-tv-plan="' + esc(c.plan) + '">Renewal paid</button> ' +
+        '<button class="btn" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-amt="' + c.id + '" data-tv-cur="' + (c.renewalAmountCents === null || c.renewalAmountCents === undefined ? '' : (c.renewalAmountCents / 100).toFixed(2)) + '">Edit $</button></div>' +
         '<span class="v ' + cls + '" style="font-weight:700;font-size:17px">' + (dl === null ? '—' : dl + ' days left') + '</span></div>';
     }).join('');
   }).catch(function(){});
@@ -1731,12 +1736,38 @@ function loadMrtv(){
 document.getElementById('tv-add').addEventListener('click', function(){
   var name = document.getElementById('tv-name').value.trim();
   if (!name) { alert('Name is required.'); return; }
-  api('/api/mrtv/customers', { method: 'POST', body: JSON.stringify({ name: name, email: document.getElementById('tv-email').value.trim(), plan: document.getElementById('tv-plan').value, start_date: document.getElementById('tv-start').value || null, notes: document.getElementById('tv-notes').value.trim() }) })
+  var amtV = document.getElementById('tv-amount').value.trim();
+  api('/api/mrtv/customers', { method: 'POST', body: JSON.stringify({ name: name, email: document.getElementById('tv-email').value.trim(), plan: document.getElementById('tv-plan').value, start_date: document.getElementById('tv-start').value || null, notes: document.getElementById('tv-notes').value.trim(), renewal_amount_cents: amtV === '' ? null : Math.round(parseFloat(amtV) * 100) }) })
     .then(function(r){
       if (!r.ok) { alert('Failed: ' + (r.j.error || 'unknown error')); return; }
-      document.getElementById('tv-name').value = ''; document.getElementById('tv-email').value = ''; document.getElementById('tv-start').value = ''; document.getElementById('tv-notes').value = '';
+      document.getElementById('tv-name').value = ''; document.getElementById('tv-email').value = ''; document.getElementById('tv-start').value = ''; document.getElementById('tv-notes').value = ''; document.getElementById('tv-amount').value = '';
       loadMrtv(); loadHome();
     });
+});
+document.getElementById('mrtv-list').addEventListener('click', function(ev){
+  var paid = ev.target.getAttribute && ev.target.getAttribute('data-tv-paid');
+  var amtB = ev.target.getAttribute && ev.target.getAttribute('data-tv-amt');
+  if (paid) {
+    var nm = ev.target.getAttribute('data-tv-name'), pl = ev.target.getAttribute('data-tv-plan');
+    if (!confirm('Mark renewal paid for ' + nm + ' and extend by one ' + pl + ' period?')) return;
+    api('/api/mrtv/customers/' + paid + '/renew', { method: 'POST' }).then(function(r){
+      if (!r.ok) { alert('Failed: ' + (r.j.error || 'unknown error')); return; }
+      loadMrtv(); loadHome();
+    });
+    return;
+  }
+  if (amtB) {
+    var cur = ev.target.getAttribute('data-tv-cur') || '';
+    var v = prompt('Renewal amount in dollars (blank = no automated invoice):', cur);
+    if (v === null) return;
+    v = v.trim();
+    var cents = v === '' ? null : Math.round(parseFloat(v) * 100);
+    if (v !== '' && !(cents >= 0)) { alert('Enter a valid dollar amount.'); return; }
+    api('/api/mrtv/customers/' + amtB, { method: 'PATCH', body: JSON.stringify({ renewal_amount_cents: cents }) }).then(function(r){
+      if (!r.ok) { alert('Failed: ' + (r.j.error || 'unknown error')); return; }
+      loadMrtv();
+    });
+  }
 });
 
 function load(){
