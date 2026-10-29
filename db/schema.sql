@@ -358,3 +358,38 @@ CREATE TABLE IF NOT EXISTS mrtv_customers (
   notes      TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- M.R. TV profit-split ledger (Mark + Ryan, 50/50). Event-sourced: the four
+-- boxes + credits remaining are derived by replaying events in seq order.
+-- All money in integer cents. Cash-out events are BOOKKEEPING ONLY.
+CREATE TABLE IF NOT EXISTS mrtv_ledger_events (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  seq        BIGSERIAL,
+  kind       TEXT NOT NULL CHECK (kind IN ('seed','order','credit_use','pack','cashout_mark','cashout_ryan','cashout_reserve')),
+  payload    JSONB NOT NULL DEFAULT '{}'::jsonb,
+  note       TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- Seed (idempotent; figures verified against the M.R. TV ledger 2026-10-29):
+-- 120-credit pack @ $150 bought 2026-10-28 (funded Lou $100 + Mark $50),
+-- minus 5 demo-ticket credits, minus the two pre-tracker sales (no
+-- waterfall on those). Final: $110.00 lifetime / $0 reserves /
+-- $50.00 Mark owed / $0 Ryan owed / 90 credits.
+INSERT INTO mrtv_ledger_events (id, kind, payload, note, created_at) VALUES
+('11111111-1111-4111-8111-111111111111', 'seed',
+ '{"credits":120,"lifetime_gross_c":0,"reserve_c":0,"mark_owed_c":5000,"ryan_owed_c":0,"repay_allocated_c":0}'::jsonb,
+ 'Opening balances: 120-credit pack $150 bought 2026-10-28, funded Lou $100 + Mark $50 (personal transfers, no fees).',
+ '2026-10-28T12:00:00Z'),
+('22222222-2222-4222-8222-222222222222', 'credit_use',
+ '{"credits":5}'::jsonb,
+ 'Demo tickets: 5 credits (160 tickets on hand).',
+ '2026-10-28T12:00:01Z'),
+('33333333-3333-4333-8333-333333333333', 'order',
+ '{"customer":"Lou","date":"2026-10-28","gross_c":10000,"fee_c":0,"net_c":10000,"credits":24,"plan":"yearly (2 TVs)","historical":true}'::jsonb,
+ 'Pre-tracker sale — the $100 went to the pack; no waterfall applied.',
+ '2026-10-28T12:00:02Z'),
+('44444444-4444-4444-8444-444444444444', 'order',
+ '{"customer":"Michelle","date":"2026-10-28","gross_c":1000,"fee_c":41,"net_c":959,"credits":1,"plan":"monthly","historical":true}'::jsonb,
+ 'Pre-tracker sale — net $9.59 held in Apex Cash App; no waterfall applied.',
+ '2026-10-28T12:00:03Z')
+ON CONFLICT (id) DO NOTHING;

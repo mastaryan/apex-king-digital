@@ -526,6 +526,12 @@ function mountHome(app, authRequired) {
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
 
+  // ---------- M.R. TV profit-split ledger (Mark + Ryan, 50/50) ----------
+  // Event-sourced tracker: four boxes + credits remaining, derived by
+  // replaying ledger events. Lives in the M.R. TV card detail.
+  try { require("./mrtv-ledger").mountMrtvLedger(app, authRequired); }
+  catch (e) { console.error("mrtv-ledger mount", e.message); }
+
   // ---------- email stats ----------
   app.get("/api/email/stats", authRequired, async (req, res) => {
     try {

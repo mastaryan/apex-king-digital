@@ -322,6 +322,60 @@ pre.report{white-space:pre-wrap;word-break:break-word;background:#0e0e11;border:
     <h2>M.R. TV</h2>
     <p class="sub">Coming soon. Customers, payments, monthly + yearly invoicing — and whatever integrations turn out to exist.</p>
     <p class="note" style="margin-bottom:14px">⏳ Invoice route is still open: through the TV provider, or through Apex invoicing? Not decided yet — parked here until you call it.</p>
+    <h3 style="margin:18px 0 8px">Profit split <span style="color:var(--dim);font-weight:400;font-size:13px">Mark + Ryan · 50/50</span></h3>
+    <div id="tv-boxes" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:6px"></div>
+    <p class="note" id="tv-credits-line" style="margin-bottom:10px"></p>
+    <div class="mactions" style="justify-content:flex-start;gap:8px;margin-bottom:6px">
+      <button class="btn danger sm" id="tv-cash-mark" type="button">Mark cashed out</button>
+      <button class="btn danger sm" id="tv-cash-ryan" type="button">Ryan cashed out</button>
+      <button class="btn danger sm" id="tv-cash-reserve" type="button">Reserve spent</button>
+    </div>
+    <p class="note" style="margin-bottom:14px">⚠️ Cash-out buttons are <b>bookkeeping only</b> — they move no real money. Pay Mark via Cash App yourself whenever you choose, then clear his box. When reserves hit $150, buy the next pack yourself and clear the reserve box.</p>
+    <details style="margin-top:10px">
+      <summary style="cursor:pointer;color:var(--dim);font-size:14px">+ Record a sale</summary>
+      <div style="margin-top:10px">
+        <div class="frow">
+          <div class="field"><label>Customer *</label><input id="tv-ord-customer" placeholder="Customer name" /></div>
+          <div class="field"><label>Date</label><input id="tv-ord-date" type="date" /></div>
+        </div>
+        <div class="frow">
+          <div class="field"><label>Gross $ *</label><input id="tv-ord-gross" inputmode="decimal" placeholder="10.00" /></div>
+          <div class="field"><label>Fee $</label><input id="tv-ord-fee" inputmode="decimal" placeholder="0.41" /></div>
+          <div class="field"><label>Net $ (auto = gross − fee)</label><input id="tv-ord-net" inputmode="decimal" placeholder="auto" /></div>
+        </div>
+        <div class="frow">
+          <div class="field"><label>Credits used *</label><input id="tv-ord-credits" inputmode="numeric" placeholder="1" /></div>
+          <div class="field"><label>Plan</label><input id="tv-ord-plan" placeholder="monthly / yearly" /></div>
+        </div>
+        <div class="mactions" style="justify-content:flex-start"><button class="btn primary" id="tv-ord-add" type="button">Record sale</button></div>
+        <p class="note">Saving runs the waterfall: $2.00 per credit to reserves first, then 75/25 Mark/Ryan until Mark's $50 is repaid, then 50/50. Revenue is tracked net of fees.</p>
+      </div>
+    </details>
+    <details style="margin-top:10px">
+      <summary style="cursor:pointer;color:var(--dim);font-size:14px">+ Record a pack purchase</summary>
+      <div style="margin-top:10px">
+        <div class="frow">
+          <div class="field"><label>Credits added *</label><input id="tv-pack-credits" inputmode="numeric" placeholder="120" /></div>
+          <div class="field"><label>Cost $ (from reserves)</label><input id="tv-pack-cost" inputmode="decimal" placeholder="150.00" /></div>
+        </div>
+        <div class="mactions" style="justify-content:flex-start"><button class="btn primary" id="tv-pack-add" type="button">Record pack</button></div>
+        <p class="note">Adds the credits and subtracts the cost from reserves (reserves never go below $0).</p>
+      </div>
+    </details>
+    <details style="margin-top:10px">
+      <summary style="cursor:pointer;color:var(--dim);font-size:14px">+ Log credit use (demo tickets, comps)</summary>
+      <div style="margin-top:10px">
+        <div class="frow">
+          <div class="field"><label>Credits *</label><input id="tv-use-credits" inputmode="numeric" placeholder="5" /></div>
+          <div class="field"><label>Note</label><input id="tv-use-note" placeholder="demo tickets" /></div>
+        </div>
+        <div class="mactions" style="justify-content:flex-start"><button class="btn primary" id="tv-use-add" type="button">Log use</button></div>
+      </div>
+    </details>
+    <details style="margin-top:10px;margin-bottom:18px">
+      <summary style="cursor:pointer;color:var(--dim);font-size:14px">Ledger history</summary>
+      <div id="tv-history" style="margin-top:10px"></div>
+    </details>
     <div id="mrtv-list"></div>
     <details style="margin-top:14px">
       <summary style="cursor:pointer;color:var(--dim);font-size:14px">+ Add an M.R. TV customer</summary>
@@ -1527,7 +1581,102 @@ document.getElementById('mu-add').addEventListener('click', function(){
       loadMockups(); loadHome();
     });
 });
+// ---------- M.R. TV profit-split ledger ----------
+var tvBoxes = null;
+function tvMoney(c){ return '$' + ((c || 0) / 100).toFixed(2); }
+function loadLedger(){
+  api('/api/mrtv/ledger').then(function(r){
+    if (!r.ok) return;
+    var b = r.j.boxes || {};
+    tvBoxes = b;
+    var card = function(label, cents){
+      return '<div class="lane-row" style="display:block;margin-bottom:0"><div style="font-size:13px;color:var(--dim)">' + esc(label) + '</div><div style="font-size:22px;font-weight:700">' + tvMoney(cents) + '</div></div>';
+    };
+    document.getElementById('tv-boxes').innerHTML =
+      card('Lifetime earnings', b.lifetimeGrossC) + card('Reserves (next pack)', b.reserveC) +
+      card('Mark owed', b.markOwedC) + card('Ryan owed', b.ryanOwedC);
+    document.getElementById('tv-credits-line').textContent = 'Credits remaining: ' + (b.credits == null ? '—' : b.credits);
+    var dis = function(id, cents){ var el = document.getElementById(id); el.disabled = !(cents > 0); el.style.opacity = cents > 0 ? '' : '.45'; };
+    dis('tv-cash-mark', b.markOwedC); dis('tv-cash-ryan', b.ryanOwedC); dis('tv-cash-reserve', b.reserveC);
+    var h = r.j.events || [];
+    document.getElementById('tv-history').innerHTML = h.length ? h.map(function(e){
+      return '<div class="lane-row"><div class="m"><b>' + esc(e.title) + '</b><br><span style="color:var(--dim);font-size:13px">' + esc(e.detail || '') + '</span></div>' +
+        '<span style="color:var(--dim);font-size:12px">' + esc(e.at || '') + '</span>' +
+        (e.canDelete ? ' <button class="btn sm" data-tv-del="' + esc(e.id) + '" type="button" title="Delete entry">✕</button>' : '') + '</div>';
+    }).join('') : '<p class="note">No ledger entries yet.</p>';
+    Array.prototype.forEach.call(document.querySelectorAll('[data-tv-del]'), function(btn){
+      btn.addEventListener('click', function(){
+        if (!confirm('Delete this ledger entry? Its effect on the boxes is reversed.')) return;
+        api('/api/mrtv/ledger/events/' + btn.getAttribute('data-tv-del'), { method: 'DELETE' }).then(function(dr){
+          if (!dr.ok) { alert('Failed: ' + (dr.j.error || 'unknown error')); return; }
+          loadLedger();
+        });
+      });
+    });
+  }).catch(function(){});
+}
+function tvCashout(who, label){
+  var amt = tvBoxes ? (who === 'mark' ? tvBoxes.markOwedC : who === 'ryan' ? tvBoxes.ryanOwedC : tvBoxes.reserveC) : 0;
+  if (!confirm('Clear the ' + label + ' box (' + tvMoney(amt) + ') to $0?\n\nBookkeeping only — this moves no real money.')) return;
+  api('/api/mrtv/ledger/cashout/' + who, { method: 'POST' }).then(function(r){
+    if (!r.ok) { alert('Failed: ' + (r.j.error || 'unknown error')); return; }
+    alert(label + ' cleared (' + tvMoney(r.j.clearedC) + '). Bookkeeping only — no money moved.');
+    loadLedger();
+  });
+}
+document.getElementById('tv-cash-mark').addEventListener('click', function(){ tvCashout('mark', 'Mark owed'); });
+document.getElementById('tv-cash-ryan').addEventListener('click', function(){ tvCashout('ryan', 'Ryan owed'); });
+document.getElementById('tv-cash-reserve').addEventListener('click', function(){ tvCashout('reserve', 'Reserves'); });
+var tvNetTouched = false;
+document.getElementById('tv-ord-net').addEventListener('input', function(){ tvNetTouched = true; });
+function tvAutoNet(){
+  if (tvNetTouched) return;
+  var g = parseFloat(document.getElementById('tv-ord-gross').value), f = parseFloat(document.getElementById('tv-ord-fee').value || '0');
+  if (isFinite(g) && isFinite(f)) document.getElementById('tv-ord-net').value = (g - f).toFixed(2);
+}
+document.getElementById('tv-ord-gross').addEventListener('input', tvAutoNet);
+document.getElementById('tv-ord-fee').addEventListener('input', tvAutoNet);
+document.getElementById('tv-ord-add').addEventListener('click', function(){
+  var customer = document.getElementById('tv-ord-customer').value.trim();
+  if (!customer) { alert('Customer is required.'); return; }
+  var credits = document.getElementById('tv-ord-credits').value.trim();
+  if (!/^\d+$/.test(credits)) { alert('Credits used must be a whole number.'); return; }
+  api('/api/mrtv/ledger/orders', { method: 'POST', body: JSON.stringify({
+    customer: customer, date: document.getElementById('tv-ord-date').value || null,
+    gross: document.getElementById('tv-ord-gross').value.trim(), fee: document.getElementById('tv-ord-fee').value.trim(),
+    net: document.getElementById('tv-ord-net').value.trim(), credits: credits,
+    plan: document.getElementById('tv-ord-plan').value.trim()
+  })}).then(function(r){
+    if (!r.ok) { alert('Failed: ' + (r.j.error || 'unknown error')); return; }
+    ['tv-ord-customer','tv-ord-date','tv-ord-gross','tv-ord-fee','tv-ord-net','tv-ord-credits','tv-ord-plan'].forEach(function(id){ document.getElementById(id).value = ''; });
+    tvNetTouched = false;
+    loadLedger();
+  });
+});
+document.getElementById('tv-pack-add').addEventListener('click', function(){
+  var credits = document.getElementById('tv-pack-credits').value.trim();
+  if (!/^\d+$/.test(credits) || credits === '0') { alert('Credits added must be a positive whole number.'); return; }
+  api('/api/mrtv/ledger/packs', { method: 'POST', body: JSON.stringify({
+    credits_added: credits, cost: document.getElementById('tv-pack-cost').value.trim() || '150'
+  })}).then(function(r){
+    if (!r.ok) { alert('Failed: ' + (r.j.error || 'unknown error')); return; }
+    document.getElementById('tv-pack-credits').value = ''; document.getElementById('tv-pack-cost').value = '';
+    loadLedger();
+  });
+});
+document.getElementById('tv-use-add').addEventListener('click', function(){
+  var credits = document.getElementById('tv-use-credits').value.trim();
+  if (!/^\d+$/.test(credits) || credits === '0') { alert('Credits must be a positive whole number.'); return; }
+  api('/api/mrtv/ledger/credit-use', { method: 'POST', body: JSON.stringify({
+    credits: credits, note: document.getElementById('tv-use-note').value.trim()
+  })}).then(function(r){
+    if (!r.ok) { alert('Failed: ' + (r.j.error || 'unknown error')); return; }
+    document.getElementById('tv-use-credits').value = ''; document.getElementById('tv-use-note').value = '';
+    loadLedger();
+  });
+});
 function loadMrtv(){
+  loadLedger();
   api('/api/mrtv/customers').then(function(r){
     if (!r.ok) return;
     var box = document.getElementById('mrtv-list');
