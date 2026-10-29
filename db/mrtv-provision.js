@@ -18,7 +18,9 @@
 //   bouquet templates: 36929 "USA Only - Adults", 36930 "USA Only - No Adults",
 //                       36931 "All Countries - No Adult"
 //   new:    ?action=new&type=m3u&sub=12&pack=36930&api_key=KEY[&note=...]
-//           sub: 1/3/6/12 months, 99 = demo (burns 1 demo ticket)
+//           sub: 1 = monthly, 12 = yearly, 99 = demo (burns 1 demo ticket).
+//           The panel API also accepts 3/6, but the dashboard offers ONLY
+//           these three durations (Ryan 2026-10-29).
 //   renew:  ?action=renew&type=m3u&username=U&password=P&sub=12&api_key=KEY
 // Gaps: no "All Countries - Adults" template; new lines likely use the
 // panel's default portal host until proven otherwise; demo ticket mechanics
