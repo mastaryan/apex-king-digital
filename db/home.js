@@ -551,7 +551,7 @@ function mountHome(app, authRequired) {
       vals.push(req.params.id);
       const { rows } = await getPool().query(
         "UPDATE mrtv_customers SET " + sets.join(", ") + " WHERE id = $" + vals.length +
-        " RETURNING id, name, email, plan, start_date, end_date");
+        " RETURNING id, name, email, plan, start_date, end_date", vals);
       if (!rows.length) return res.status(404).json({ error: "customer not found" });
       const r0 = rows[0], today = nyToday();
       res.json({ ok: true, id: r0.id, name: r0.name, email: r0.email, plan: r0.plan,
