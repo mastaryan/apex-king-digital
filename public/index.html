@@ -1631,7 +1631,8 @@ function loadLedger(){
     };
     document.getElementById('tv-boxes').innerHTML =
       card('Lifetime earnings', b.lifetimeGrossC) + card('Reserves (next pack)', b.reserveC) +
-      card('Mark owed', b.markOwedC) + card('Ryan owed', b.ryanOwedC);
+      '<div class="lane-row" style="display:block;margin-bottom:0"><div style="font-size:13px;color:var(--dim)">Mark owed</div><div style="font-size:22px;font-weight:700">' + tvMoney(b.markOwedC) + '</div><div style="font-size:12px;color:var(--dim)">Mark earned: ' + tvMoney(b.markEarnedC) + '</div></div>' +
+      card('Ryan owed', b.ryanOwedC);
     document.getElementById('tv-credits-line').textContent = 'Credits remaining: ' + (b.credits == null ? '—' : b.credits);
     var dis = function(id, cents){ var el = document.getElementById(id); el.disabled = !(cents > 0); el.style.opacity = cents > 0 ? '' : '.45'; };
     dis('tv-cash-mark', b.markOwedC); dis('tv-cash-ryan', b.ryanOwedC); dis('tv-cash-reserve', b.reserveC);

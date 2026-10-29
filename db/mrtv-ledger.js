@@ -4,6 +4,13 @@
 // boxes + credits remaining are derived by replaying events in seq order.
 // Deleting an event reverses its effect exactly (replay from scratch).
 //
+// "Mark earned" is a fifth derived figure, cumulative and display-only: it
+// counts UP by Mark's waterfall share on every (non-historical) order —
+// 75% shares while his $50 is being repaid, 50% after — while "Mark owed"
+// counts DOWN as those same shares repay him. Cashing Mark out zeroes the
+// owed box but never resets earned (earned is informational; owed is what
+// can be cleared).
+//
 // Rules (Ryan, 2026-10-29 — implemented exactly):
 //  - Reserve: $2.00 per credit sold, taken from each sale's net revenue.
 //    The reserve funds the next $150 pack.
@@ -40,7 +47,7 @@ function fmtSignedC(c) { return (c < 0 ? "-$" : "+$") + (Math.abs(c) / 100).toFi
 // Exported for local verification (node harness, no DB needed).
 function computeLedger(events) {
   const evs = [...(events || [])].sort((a, b) => (a.seq - b.seq) || (a.id < b.id ? -1 : 1));
-  const st = { lifetimeGrossC: 0, reserveC: 0, markOwedC: 0, ryanOwedC: 0, credits: 0, repayAllocatedC: 0 };
+  const st = { lifetimeGrossC: 0, reserveC: 0, markOwedC: 0, ryanOwedC: 0, credits: 0, repayAllocatedC: 0, markEarnedC: 0 };
   const effects = {};
   for (const e of evs) {
     const before = { ...st };
@@ -53,6 +60,7 @@ function computeLedger(events) {
         st.markOwedC = p.mark_owed_c | 0;
         st.ryanOwedC = p.ryan_owed_c | 0;
         st.repayAllocatedC = p.repay_allocated_c | 0;
+        st.markEarnedC = p.mark_earned_c | 0;
         break;
       case "order": {
         const grossC = p.gross_c | 0, netC = p.net_c | 0, cr = p.credits | 0;
@@ -70,6 +78,7 @@ function computeLedger(events) {
               st.markOwedC -= mark75;
               st.ryanOwedC += rem - mark75;
               st.repayAllocatedC += mark75;
+              st.markEarnedC += mark75;
             } else {
               // This sale finishes Mark's repayment; the leftover of the
               // remainder splits 50/50 from here on.
@@ -79,12 +88,14 @@ function computeLedger(events) {
               const m = Math.floor(rest / 2);
               st.markOwedC += m;
               st.ryanOwedC += rest - m;
+              st.markEarnedC += need + m;
             }
           } else {
             // 50/50 after Mark is repaid.
             const m = Math.floor(rem / 2);
             st.markOwedC += m;
             st.ryanOwedC += rem - m;
+            st.markEarnedC += m;
           }
         }
         break;
@@ -117,6 +128,7 @@ function computeLedger(events) {
       markC: st.markOwedC - before.markOwedC,
       ryanC: st.ryanOwedC - before.ryanOwedC,
       credits: st.credits - before.credits,
+      markEarnedC: st.markEarnedC - before.markEarnedC,
       lifetimeGrossC: st.lifetimeGrossC - before.lifetimeGrossC,
     };
   }
