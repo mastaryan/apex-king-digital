@@ -374,6 +374,21 @@ ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS lines JSONB NOT NULL DEFAULT
 ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS provisioned_at TIMESTAMPTZ;
 ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS needs_manual TEXT NOT NULL DEFAULT '';
 ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS ledger_posted_for DATE;
+-- Sent-mail log (2026-10-29): every M.R. TV email the dashboard sends gets
+-- a row — recipient, subject, SMTP message id + server response, ok/error.
+-- This is the proof-of-send record.
+CREATE TABLE IF NOT EXISTS mrtv_email_log (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  kind       TEXT NOT NULL,
+  customer_id UUID,
+  to_email   TEXT,
+  subject    TEXT,
+  message_id TEXT,
+  smtp_response TEXT,
+  ok         BOOLEAN NOT NULL DEFAULT true,
+  error      TEXT
+);
 
 -- M.R. TV profit-split ledger (Mark + Ryan, 50/50). Event-sourced: the four
 -- boxes + credits remaining are derived by replaying events in seq order.

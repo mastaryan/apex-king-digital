@@ -670,7 +670,7 @@ function mountHome(app, authRequired) {
           "Just reply to this email once you've paid and I'll get you extended.\n\n" +
           "Thanks,\nRyan — M.R. TV";
         try {
-          await mailer.sendMail({
+          const info = await mailer.sendMail({
             from: "M.R. TV <hello@apexkingdigital.com>",
             replyTo: "tv@apexkingdigital.com",
             to: r.email,
@@ -678,8 +678,13 @@ function mountHome(app, authRequired) {
             text: text,
           });
           await getPool().query("UPDATE mrtv_customers SET renewal_email_sent_for = $1 WHERE id = $2", [endIso, r.id]);
+          try { await require("./mrtv-provision").logEmail({ kind: "renewal", customerId: r.id, to: r.email, subject: "Your M.R. TV renews in " + dl + " days", info: info, ok: true }); } catch (le) { console.error("email log", le.message); }
           sent++;
-        } catch (e) { errors.push(r.name + ": " + String(e.message || e).slice(0, 120)); }
+        } catch (e) {
+          const em = String(e.message || e).slice(0, 120);
+          errors.push(r.name + ": " + em);
+          try { await require("./mrtv-provision").logEmail({ kind: "renewal", customerId: r.id, to: r.email, subject: "Your M.R. TV renews in " + dl + " days", ok: false, error: em }); } catch (le) { console.error("email log", le.message); }
+        }
       }
       res.json({ ok: true, sent: sent, skipped: skipped, errors: errors });
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }

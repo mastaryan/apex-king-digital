@@ -190,6 +190,19 @@ function loginFrom() {
   return "M.R. TV <" + (tvUser || "hello@apexkingdigital.com") + ">";
 }
 
+// Sent-mail log: the proof-of-send record. Every M.R. TV email gets a row
+// with the SMTP message id + server response (or the error).
+async function logEmail(o) {
+  try {
+    const info = o.info || {};
+    await getPool().query(
+      "INSERT INTO mrtv_email_log (kind, customer_id, to_email, subject, message_id, smtp_response, ok, error) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+      [o.kind, o.customerId || null, o.to || null, String(o.subject || "").slice(0, 200),
+       info.messageId || null, String(info.response || "").slice(0, 300),
+       !!o.ok, o.error ? String(o.error).slice(0, 300) : null]);
+  } catch (e) { console.error("email log", e.message); }
+}
+
 // Same payload shape as POST /api/mrtv/ledger/orders (inserted directly so
 // the provision click needs no HTTP-to-self).
 async function postLedgerOrder(o) {
@@ -217,6 +230,20 @@ function mountMrtvProvision(app, authRequired) {
       await ml.verify();
       res.json({ ok: true, from: loginFrom() });
     } catch (e) { res.json({ ok: false, from: loginFrom(), error: String(e.message || e).slice(0, 200) }); }
+  });
+
+  // Sent-mail log: newest first, cap 100.
+  app.get("/api/mrtv/email/log", authRequired, async (req, res) => {
+    try {
+      if (needPg(req, res)) return;
+      const { rows } = await getPool().query(
+        "SELECT id, created_at, kind, customer_id, to_email, subject, message_id, smtp_response, ok, error FROM mrtv_email_log ORDER BY created_at DESC LIMIT 100");
+      res.json({ log: rows.map((r) => ({
+        id: r.id, at: r.created_at ? r.created_at.toISOString() : null, kind: r.kind,
+        customerId: r.customer_id, to: r.to_email, subject: r.subject,
+        messageId: r.message_id, smtpResponse: r.smtp_response, ok: r.ok, error: r.error,
+      })) });
+    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
 
   // Panel reseller status: credits display + key check.
@@ -291,13 +318,17 @@ function mountMrtvProvision(app, authRequired) {
           emailError = "SMTP not configured on server";
         } else {
           try {
-            await ml.sendMail({
+            const info = await ml.sendMail({
               from: loginFrom(),
               replyTo: "tv@apexkingdigital.com",
               to: c.email, subject: filled.subject, text: filled.text,
             });
             emailSent = true;
-          } catch (e) { emailError = String(e.message || e).slice(0, 160); }
+            await logEmail({ kind: "provision_login", customerId: c.id, to: c.email, subject: filled.subject, info: info, ok: true });
+          } catch (e) {
+            emailError = String(e.message || e).slice(0, 160);
+            await logEmail({ kind: "provision_login", customerId: c.id, to: c.email, subject: filled.subject, ok: false, error: emailError });
+          }
         }
       } else {
         manualFlags.push("No email on file — line(s) created; send the logins to the customer by hand.");
@@ -398,9 +429,13 @@ function mountMrtvProvision(app, authRequired) {
           if (!ml) { emailError = "SMTP not configured on server"; }
           else {
             try {
-              await ml.sendMail({ from: loginFrom(), replyTo: "tv@apexkingdigital.com", to: c.email, subject: filled.subject, text: filled.text });
+              const info = await ml.sendMail({ from: loginFrom(), replyTo: "tv@apexkingdigital.com", to: c.email, subject: filled.subject, text: filled.text });
               emailSent = true;
-            } catch (e) { emailError = String(e.message || e).slice(0, 160); }
+              await logEmail({ kind: "demo_login", customerId: c.id, to: c.email, subject: filled.subject, info: info, ok: true });
+            } catch (e) {
+              emailError = String(e.message || e).slice(0, 160);
+              await logEmail({ kind: "demo_login", customerId: c.id, to: c.email, subject: filled.subject, ok: false, error: emailError });
+            }
           }
         }
       }
@@ -413,4 +448,4 @@ function mountMrtvProvision(app, authRequired) {
   });
 }
 
-module.exports = { mountMrtvProvision, fillLoginEmail, packFor, LOGIN_TEMPLATE };
+module.exports = { mountMrtvProvision, fillLoginEmail, packFor, LOGIN_TEMPLATE, logEmail };
