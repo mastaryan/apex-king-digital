@@ -183,6 +183,19 @@ function mountMrtvProvision(app, authRequired) {
     return false;
   };
 
+  // SMTP check for the login-email sender: verifies the connection + auth
+  // without sending anything. Reports which mailbox the login email
+  // currently sends from.
+  app.get("/api/mrtv/email/check", authRequired, async (req, res) => {
+    try {
+      if (needPg(req, res)) return;
+      const ml = mailer();
+      if (!ml) return res.json({ ok: false, from: null, error: "SMTP not configured on server" });
+      await ml.verify();
+      res.json({ ok: true, from: loginFrom() });
+    } catch (e) { res.json({ ok: false, from: loginFrom(), error: String(e.message || e).slice(0, 200) }); }
+  });
+
   // Panel reseller status: credits display + key check.
   app.get("/api/mrtv/panel/status", authRequired, async (req, res) => {
     try {
