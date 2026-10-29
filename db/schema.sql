@@ -358,6 +358,8 @@ CREATE TABLE IF NOT EXISTS mrtv_customers (
   notes      TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS renewal_amount_cents INTEGER;
+ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS renewal_email_sent_for DATE;
 
 -- M.R. TV profit-split ledger (Mark + Ryan, 50/50). Event-sourced: the four
 -- boxes + credits remaining are derived by replaying events in seq order.

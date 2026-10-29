@@ -48,6 +48,15 @@ function noPg(res) {
 }
 function cleanStr(s, n) { return String(s || "").trim().slice(0, n || 200); }
 function isEmail(s) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || "")); }
+// Renewal amount in integer cents. null/"" => null (no automated invoice).
+// Returns false when the value is present but not a valid non-negative amount.
+function parseRenewalAmount(v) {
+  if (v === undefined || v === null || v === "") return null;
+  const n = Math.round(Number(v));
+  if (!isFinite(n) || n < 0) return false;
+  return n;
+}
+function fmtCents(c) { return "$" + (c / 100).toFixed(2).replace(/\.00$/, ""); }
 
 // Dates in Ryan's timezone (America/New_York) as YYYY-MM-DD.
 function nyToday() {
@@ -489,7 +498,7 @@ function mountHome(app, authRequired) {
       if (needPg(req, res)) return;
       const today = nyToday();
       const { rows } = await getPool().query(
-        "SELECT id, name, email, plan, start_date, end_date, notes, created_at FROM mrtv_customers ORDER BY end_date ASC");
+        "SELECT id, name, email, plan, start_date, end_date, notes, renewal_amount_cents, created_at FROM mrtv_customers ORDER BY end_date ASC");
       res.json({
         customers: rows.map((r) => ({
           id: r.id, name: r.name, email: r.email, plan: r.plan,
@@ -497,6 +506,7 @@ function mountHome(app, authRequired) {
           endDate: r.end_date ? r.end_date.toISOString().slice(0, 10) : null,
           daysLeft: r.end_date ? daysBetween(today, r.end_date.toISOString().slice(0, 10)) : null,
           notes: r.notes,
+          renewalAmountCents: r.renewal_amount_cents,
         })),
         invoiceRouteOpen: true,
         note: "Invoice route is still open: through the TV provider, or through Apex invoicing? Not decided yet.",
@@ -514,9 +524,11 @@ function mountHome(app, authRequired) {
       const plan = b.plan === "monthly" ? "monthly" : "yearly";
       const start = /^\d{4}-\d{2}-\d{2}$/.test(String(b.start_date || "")) ? b.start_date : nyToday();
       const end = plan === "monthly" ? addMonthsISO(start, 1) : addYearsISO(start, 1);
+      const amt = parseRenewalAmount(b.renewal_amount_cents);
+      if (amt === false) return res.status(400).json({ error: "bad renewal amount" });
       const { rows } = await getPool().query(
-        "INSERT INTO mrtv_customers (name, email, plan, start_date, end_date, notes) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, start_date, end_date",
-        [name, email || null, plan, start, end, cleanStr(b.notes, 1000) || ""]);
+        "INSERT INTO mrtv_customers (name, email, plan, start_date, end_date, notes, renewal_amount_cents) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, start_date, end_date",
+        [name, email || null, plan, start, end, cleanStr(b.notes, 1000) || "", amt]);
       res.json({
         ok: true, id: rows[0].id,
         startDate: rows[0].start_date.toISOString().slice(0, 10),
@@ -547,6 +559,11 @@ function mountHome(app, authRequired) {
       if (b.start_date !== undefined) { const s = iso(b.start_date); if (!s) return res.status(400).json({ error: "bad start_date" }); push("start_date", s); }
       if (b.end_date !== undefined) { const s = iso(b.end_date); if (!s) return res.status(400).json({ error: "bad end_date" }); push("end_date", s); }
       if (b.notes !== undefined) push("notes", cleanStr(b.notes, 1000) || "");
+      if (b.renewal_amount_cents !== undefined) {
+        const amt = parseRenewalAmount(b.renewal_amount_cents);
+        if (amt === false) return res.status(400).json({ error: "bad renewal amount" });
+        push("renewal_amount_cents", amt);
+      }
       if (!sets.length) return res.status(400).json({ error: "nothing to update" });
       vals.push(req.params.id);
       const { rows } = await getPool().query(
@@ -561,7 +578,91 @@ function mountHome(app, authRequired) {
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
 
-  // ---------- M.R. TV profit-split ledger (Mark + Ryan, 50/50) ----------
+  // Mark an M.R. TV renewal paid: roll end_date forward one plan period.
+  // This re-arms the next automated renewal email. Ryan clicks it when the
+  // Cash App money lands; the ledger order itself is still entered by hand.
+  app.post("/api/mrtv/customers/:id/renew", authRequired, async (req, res) => {
+    try {
+      if (needPg(req, res)) return;
+      const { rows } = await getPool().query(
+        "SELECT id, plan, end_date FROM mrtv_customers WHERE id = $1", [req.params.id]);
+      if (!rows.length) return res.status(404).json({ error: "customer not found" });
+      const c = rows[0];
+      const endIso = c.end_date ? c.end_date.toISOString().slice(0, 10) : nyToday();
+      const next = c.plan === "monthly" ? addMonthsISO(endIso, 1) : addYearsISO(endIso, 1);
+      const u = await getPool().query(
+        "UPDATE mrtv_customers SET end_date = $1 WHERE id = $2 RETURNING end_date",
+        [next, req.params.id]);
+      const newEnd = u.rows[0].end_date.toISOString().slice(0, 10);
+      res.json({ ok: true, endDate: newEnd, daysLeft: daysBetween(nyToday(), newEnd) });
+    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
+  });
+
+  // M.R. TV renewal invoice automation (Ryan 2026-10-29: "Build it!").
+  // Fires 5 days before a monthly renewal, 15 days before a yearly one.
+  // One email per (customer, end_date) cycle — deduped via
+  // renewal_email_sent_for, so re-runs are safe. Sends from the dashboard's
+  // SMTP as M.R. TV with Reply-To tv@ (no tv@ SMTP credential on hand).
+  // The email carries the renewal amount + Cash App link; Ryan marks paid
+  // in the tracker when the money lands, then hits "Renewal paid".
+  const MRTV_CASHAPP = "https://cash.app/$ApexKingDigital";
+  function mrtvMailer() {
+    if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env["SMTP_" + "PASS"]) return null;
+    const nodemailer = require("nodemailer");
+    return nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT || 465),
+      secure: Number(process.env.SMTP_PORT || 465) === 465,
+      auth: { user: process.env.SMTP_USER, pass: process.env["SMTP_" + "PASS"] },
+    });
+  }
+  function fmtLongDate(iso) {
+    const p = String(iso || "").split("-");
+    const mon = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][Number(p[1]) - 1] || "";
+    return mon + " " + Number(p[2]) + ", " + p[0];
+  }
+  app.post("/api/mrtv/renewals/run", authRequired, async (req, res) => {
+    try {
+      if (needPg(req, res)) return;
+      const today = nyToday();
+      const { rows } = await getPool().query(
+        "SELECT id, name, email, plan, end_date, renewal_amount_cents, renewal_email_sent_for " +
+        "FROM mrtv_customers WHERE renewal_amount_cents IS NOT NULL AND end_date IS NOT NULL");
+      const mailer = mrtvMailer();
+      let sent = 0, skipped = 0;
+      const errors = [];
+      for (const r of rows) {
+        const endIso = r.end_date.toISOString().slice(0, 10);
+        const dl = daysBetween(today, endIso);
+        const due = (r.plan === "monthly" && dl === 5) || (r.plan === "yearly" && dl === 15);
+        if (!due) continue;
+        if (r.renewal_email_sent_for && r.renewal_email_sent_for.toISOString().slice(0, 10) === endIso) { skipped++; continue; }
+        if (!r.email) { errors.push(r.name + ": no email on file"); continue; }
+        if (!mailer) { errors.push("SMTP not configured on server"); break; }
+        const first = String(r.name || "").split(" ")[0] || "there";
+        const amount = fmtCents(r.renewal_amount_cents);
+        const text =
+          "Hi " + first + ",\n\n" +
+          "Your M.R. TV plan (" + r.plan + ") renews on " + fmtLongDate(endIso) + " — " + dl + " days from now.\n\n" +
+          "Amount due: " + amount + "\n" +
+          "Pay here: " + MRTV_CASHAPP + "\n\n" +
+          "Just reply to this email once you've paid and I'll get you extended.\n\n" +
+          "Thanks,\nRyan — M.R. TV";
+        try {
+          await mailer.sendMail({
+            from: "M.R. TV <hello@apexkingdigital.com>",
+            replyTo: "tv@apexkingdigital.com",
+            to: r.email,
+            subject: "Your M.R. TV renews in " + dl + " days",
+            text: text,
+          });
+          await getPool().query("UPDATE mrtv_customers SET renewal_email_sent_for = $1 WHERE id = $2", [endIso, r.id]);
+          sent++;
+        } catch (e) { errors.push(r.name + ": " + String(e.message || e).slice(0, 120)); }
+      }
+      res.json({ ok: true, sent: sent, skipped: skipped, errors: errors });
+    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
+  });
   // Event-sourced tracker: four boxes + credits remaining, derived by
   // replaying ledger events. Lives in the M.R. TV card detail.
   try { require("./mrtv-ledger").mountMrtvLedger(app, authRequired); }
