@@ -782,6 +782,8 @@ function invListHtml(s){
       '<span class="sp">' +
       (r.hostedUrl ? '<a href="' + esc(r.hostedUrl) + '" target="_blank" rel="noopener">View</a>' : '') +
       (r.pdfUrl ? '<a href="' + esc(r.pdfUrl) + '" target="_blank" rel="noopener">PDF</a>' : '') +
+      (r.status === 'draft' && !r.attachmentName ? '<button class="btn sm" data-inv="' + esc(r.id) + '" data-inv-act="attach">Attach PDF</button><input type="file" class="inv-attach-file" data-inv="' + esc(r.id) + '" accept="application/pdf,.pdf" hidden>' : '') +
+      (r.status === 'draft' && r.attachmentName ? '<button class="btn sm" data-inv="' + esc(r.id) + '" data-inv-act="unattach">Remove</button>' : '') +
       (r.status === 'draft' ? '<button class="btn sm" data-inv="' + esc(r.id) + '" data-inv-act="send">Send</button>' : '') +
       ((r.status === 'draft' || r.status === 'open') ? '<button class="btn sm danger" data-inv="' + esc(r.id) + '" data-inv-act="void">Void</button>' : '') +
       '</span></div>';
@@ -859,6 +861,19 @@ document.getElementById('site-list').addEventListener('click', function(e){
   if (ibtn) {
     var iid = ibtn.closest('.site').dataset.id;
     var invId = ibtn.dataset.inv, act = ibtn.dataset.invAct;
+    if (act === 'attach') {
+      var fi = ibtn.closest('.site').querySelector('input.inv-attach-file[data-inv="' + invId + '"]');
+      if (fi) fi.click();
+      return;
+    }
+    if (act === 'unattach') {
+      if (!confirm('Remove the staged attachment from this draft?')) return;
+      api('/api/sites/' + iid + '/invoices/' + invId + '/attachment', { method: 'POST', body: JSON.stringify({ remove: true }) }).then(function(r){
+        if (!r.ok) alert('Failed: ' + (r.j.error || 'unknown error'));
+        load();
+      });
+      return;
+    }
     if (act === 'void' && !confirm('Void this invoice? This cannot be undone.')) return;
     api('/api/sites/' + iid + '/invoices/' + invId + '/' + act, { method: 'POST', body: '{}' }).then(function(r){
       if (!r.ok) alert('Failed: ' + (r.j.error || 'unknown error'));
@@ -875,6 +890,28 @@ document.getElementById('site-list').addEventListener('click', function(e){
   if (btn.dataset.act === 'del' && confirm('Delete "' + s.name + '"?')) {
     api('/api/sites/' + id, { method: 'DELETE' }).then(load);
   }
+});
+
+// Draft-row "Attach PDF" picker: uploads through the attachment endpoint,
+// then reloads so the staged filename shows on the row.
+document.getElementById('site-list').addEventListener('change', function(e){
+  var fi = e.target.closest('input.inv-attach-file');
+  if (!fi) return;
+  var f = fi.files && fi.files[0];
+  if (!f) return;
+  var iid = fi.closest('.site').dataset.id;
+  var invId = fi.dataset.inv;
+  var rd = new FileReader();
+  rd.onload = function(){
+    var b64 = String(rd.result).split(',')[1] || '';
+    api('/api/sites/' + iid + '/invoices/' + invId + '/attachment', { method: 'POST', body: JSON.stringify({ attachment: { filename: f.name, dataBase64: b64 } }) }).then(function(r){
+      if (!r.ok) alert('Failed: ' + (r.j.error || 'unknown error'));
+      else alert('Attached: ' + f.name + ' — it rides along in the companion email when this invoice sends.');
+      load();
+    });
+  };
+  rd.onerror = function(){ alert('Could not read the file.'); };
+  rd.readAsDataURL(f);
 });
 
 document.getElementById('search').addEventListener('input', render);

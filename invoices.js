@@ -470,6 +470,39 @@ function mountInvoices(app, authRequired) {
     try { res.json(await runGate()); }
     catch (e) { res.status(500).json({ error: String(e.message || e) }); }
   });
+
+  // Stage (or remove) a PDF attachment on an EXISTING draft. Stored
+  // server-side on the draft record exactly like creation-time
+  // attachments, so the gate-send companion email picks it up with no
+  // other changes. Drafts only — a sent invoice's companion already went.
+  app.post("/api/sites/:id/invoices/:invId/attachment", authRequired, async (req, res) => {
+    const sites = loadSites();
+    const site = sites.find(s => s.id === req.params.id);
+    if (!site) return res.status(404).json({ error: "not found" });
+    const rec = (site.invoices || []).find(r => r.id === req.params.invId);
+    if (!rec) return res.status(404).json({ error: "invoice not found" });
+    if (rec.status !== "draft") return res.status(400).json({ error: "only drafts can stage attachments" });
+    const body = req.body || {};
+    if (body.remove) {
+      if (rec.attachmentFile) { try { fs.unlinkSync(rec.attachmentFile); } catch (e) {} }
+      rec.attachmentName = null; rec.attachmentFile = null;
+      await saveSites(sites);
+      return res.json(publicRecord(rec));
+    }
+    const att = body.attachment;
+    if (!att || !att.dataBase64) return res.status(400).json({ error: "no attachment" });
+    let buf;
+    try { buf = Buffer.from(String(att.dataBase64), "base64"); }
+    catch (e) { return res.status(400).json({ error: "bad base64" }); }
+    if (!buf.length || buf.length > 5 * 1024 * 1024) return res.status(400).json({ error: "attachment must be 1 byte – 5 MB" });
+    if (buf.slice(0, 4).toString() !== "%PDF") return res.status(400).json({ error: "only PDF files" });
+    if (rec.attachmentFile) { try { fs.unlinkSync(rec.attachmentFile); } catch (e) {} rec.attachmentFile = null; }
+    const saved = saveAttachment(rec.id, { filename: att.filename, dataBase64: att.dataBase64 });
+    if (!saved) return res.status(400).json({ error: "could not save attachment" });
+    rec.attachmentName = saved.filename; rec.attachmentFile = saved.file;
+    await saveSites(sites);
+    res.json(publicRecord(rec));
+  });
 }
 
 module.exports = {
