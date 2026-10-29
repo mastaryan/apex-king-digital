@@ -360,6 +360,20 @@ CREATE TABLE IF NOT EXISTS mrtv_customers (
 );
 ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS renewal_amount_cents INTEGER;
 ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS renewal_email_sent_for DATE;
+-- One-click provisioning (2026-10-29): per-TV panel credentials live in
+-- `lines` (JSONB array: {tv, type, sub, pack, username, password, user_id,
+-- demo, created_at, renewed_at}). needs_manual is a human-readable flag for
+-- anything the panel couldn't do on its own. ledger_posted_for guards the
+-- auto-posted ledger order against double-posting.
+ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS cell TEXT;
+ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS tv_count INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS package TEXT NOT NULL DEFAULT 'usa' CHECK (package IN ('usa','all','custom'));
+ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS adult_ok BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS tivimate_bundle BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS lines JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS provisioned_at TIMESTAMPTZ;
+ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS needs_manual TEXT NOT NULL DEFAULT '';
+ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS ledger_posted_for DATE;
 
 -- M.R. TV profit-split ledger (Mark + Ryan, 50/50). Event-sourced: the four
 -- boxes + credits remaining are derived by replaying events in seq order.

@@ -498,15 +498,19 @@ function mountHome(app, authRequired) {
       if (needPg(req, res)) return;
       const today = nyToday();
       const { rows } = await getPool().query(
-        "SELECT id, name, email, plan, start_date, end_date, notes, renewal_amount_cents, created_at FROM mrtv_customers ORDER BY end_date ASC");
+        "SELECT id, name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, tivimate_bundle, lines, provisioned_at, needs_manual, created_at FROM mrtv_customers ORDER BY end_date ASC");
       res.json({
         customers: rows.map((r) => ({
-          id: r.id, name: r.name, email: r.email, plan: r.plan,
+          id: r.id, name: r.name, email: r.email, cell: r.cell, plan: r.plan,
           startDate: r.start_date ? r.start_date.toISOString().slice(0, 10) : null,
           endDate: r.end_date ? r.end_date.toISOString().slice(0, 10) : null,
           daysLeft: r.end_date ? daysBetween(today, r.end_date.toISOString().slice(0, 10)) : null,
           notes: r.notes,
           renewalAmountCents: r.renewal_amount_cents,
+          tvCount: r.tv_count, package: r.package, adultOk: !!r.adult_ok, tivimateBundle: !!r.tivimate_bundle,
+          lines: Array.isArray(r.lines) ? r.lines : [],
+          provisionedAt: r.provisioned_at ? r.provisioned_at.toISOString() : null,
+          needsManual: r.needs_manual || "",
         })),
         invoiceRouteOpen: true,
         note: "Invoice route is still open: through the TV provider, or through Apex invoicing? Not decided yet.",
@@ -526,9 +530,14 @@ function mountHome(app, authRequired) {
       const end = plan === "monthly" ? addMonthsISO(start, 1) : addYearsISO(start, 1);
       const amt = parseRenewalAmount(b.renewal_amount_cents);
       if (amt === false) return res.status(400).json({ error: "bad renewal amount" });
+      const cell = cleanStr(b.cell, 40);
+      const tvs = Math.max(1, Math.min(10, parseInt(b.tv_count, 10) || 1));
+      const pkg = ["usa", "all", "custom"].indexOf(b.package) >= 0 ? b.package : "usa";
+      const adult = b.adult_ok === true || b.adult_ok === "true" || b.adult_ok === 1;
+      const tiv = b.tivimate_bundle === true || b.tivimate_bundle === "true" || b.tivimate_bundle === 1;
       const { rows } = await getPool().query(
-        "INSERT INTO mrtv_customers (name, email, plan, start_date, end_date, notes, renewal_amount_cents) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, start_date, end_date",
-        [name, email || null, plan, start, end, cleanStr(b.notes, 1000) || "", amt]);
+        "INSERT INTO mrtv_customers (name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, tivimate_bundle) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id, start_date, end_date",
+        [name, email || null, cell || null, plan, start, end, cleanStr(b.notes, 1000) || "", amt, tvs, pkg, adult, tiv]);
       res.json({
         ok: true, id: rows[0].id,
         startDate: rows[0].start_date.toISOString().slice(0, 10),
@@ -564,6 +573,18 @@ function mountHome(app, authRequired) {
         if (amt === false) return res.status(400).json({ error: "bad renewal amount" });
         push("renewal_amount_cents", amt);
       }
+      if (b.cell !== undefined) push("cell", cleanStr(b.cell, 40) || null);
+      if (b.tv_count !== undefined) {
+        const tvs = Math.max(1, Math.min(10, parseInt(b.tv_count, 10) || 1));
+        push("tv_count", tvs);
+      }
+      if (b.package !== undefined) {
+        if (["usa", "all", "custom"].indexOf(b.package) < 0) return res.status(400).json({ error: "bad package" });
+        push("package", b.package);
+      }
+      if (b.adult_ok !== undefined) push("adult_ok", !!b.adult_ok);
+      if (b.tivimate_bundle !== undefined) push("tivimate_bundle", !!b.tivimate_bundle);
+      if (b.needs_manual !== undefined) push("needs_manual", cleanStr(b.needs_manual, 500) || "");
       if (!sets.length) return res.status(400).json({ error: "nothing to update" });
       vals.push(req.params.id);
       const { rows } = await getPool().query(
@@ -667,6 +688,9 @@ function mountHome(app, authRequired) {
   // replaying ledger events. Lives in the M.R. TV card detail.
   try { require("./mrtv-ledger").mountMrtvLedger(app, authRequired); }
   catch (e) { console.error("mrtv-ledger mount", e.message); }
+  // One-click provisioning: panel line creates, login email, ledger fire.
+  try { require("./mrtv-provision").mountMrtvProvision(app, authRequired); }
+  catch (e) { console.error("mrtv-provision mount", e.message); }
 
   // ---------- email stats ----------
   app.get("/api/email/stats", authRequired, async (req, res) => {

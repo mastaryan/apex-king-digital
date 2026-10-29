@@ -324,7 +324,8 @@ pre.report{white-space:pre-wrap;word-break:break-word;background:#0e0e11;border:
     <p class="note" style="margin-bottom:14px">⏳ Invoice route is still open: through the TV provider, or through Apex invoicing? Not decided yet — parked here until you call it.</p>
     <h3 style="margin:18px 0 8px">Profit split <span style="color:var(--dim);font-weight:400;font-size:13px">Mark + Ryan · 50/50</span></h3>
     <div id="tv-boxes" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:6px"></div>
-    <p class="note" id="tv-credits-line" style="margin-bottom:10px"></p>
+    <p class="note" id="tv-credits-line" style="margin-bottom:4px"></p>
+    <p class="note" id="tv-panel-line" style="margin-bottom:10px"></p>
     <div class="mactions" style="justify-content:flex-start;gap:8px;margin-bottom:6px">
       <button class="btn danger sm" id="tv-cash-mark" type="button">Mark cashed out</button>
       <button class="btn danger sm" id="tv-cash-ryan" type="button">Ryan cashed out</button>
@@ -389,9 +390,18 @@ pre.report{white-space:pre-wrap;word-break:break-word;background:#0e0e11;border:
           <div class="field"><label>Start date (invoice date)</label><input id="tv-start" type="date" /></div>
           <div class="field"><label>Renewal amount ($)</label><input id="tv-amount" type="number" min="0" step="0.01" placeholder="10.00" /></div>
         </div>
+        <div class="frow">
+          <div class="field"><label>Cell</label><input id="tv-cell" placeholder="(606) 555-0100" /></div>
+          <div class="field"><label>TVs</label><input id="tv-tvs" type="number" min="1" max="10" value="1" /></div>
+          <div class="field"><label>Channel package</label><select id="tv-package" style="width:100%;background:#0e0e11;border:1px solid var(--line);border-radius:10px;color:var(--silver);font-size:15px;padding:10px 14px;font-family:inherit"><option value="usa">USA only</option><option value="all">All countries</option><option value="custom">Select countries (manual)</option></select></div>
+        </div>
+        <div class="frow">
+          <div class="field"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input id="tv-adult" type="checkbox" style="width:auto" /> Adult channels</label></div>
+          <div class="field"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input id="tv-tivimate" type="checkbox" style="width:auto" /> TiviMate bundle</label></div>
+        </div>
         <div class="field"><label>Notes</label><textarea id="tv-notes" rows="2"></textarea></div>
         <div class="mactions" style="justify-content:flex-start"><button class="btn primary" id="tv-add" type="button">Add customer</button></div>
-        <p class="note">Days left is the headline number. No credits tracking, no pause — start is the invoice date.</p>
+        <p class="note">Days left is the headline number. No credits tracking, no pause — start is the invoice date. <b>Mark paid &amp; provision</b> on a customer creates the panel lines, emails the logins, and posts the ledger sale in one click.</p>
       </div>
     </details>
   </div>
@@ -1716,6 +1726,13 @@ document.getElementById('tv-use-add').addEventListener('click', function(){
 });
 function loadMrtv(){
   loadLedger();
+  api('/api/mrtv/panel/status').then(function(r){
+    var el = document.getElementById('tv-panel-line');
+    if (!el) return;
+    if (!r.ok || !r.j) { el.textContent = ''; return; }
+    if (!r.j.configured) { el.innerHTML = '⚠️ Panel API key not set — add <b>TVPLUS_API_KEY</b> in the Render env.'; return; }
+    el.textContent = 'Panel credits: ' + r.j.credits + (r.j.low ? ' — running low, top up before provisioning.' : '');
+  }).catch(function(){});
   api('/api/mrtv/customers').then(function(r){
     if (!r.ok) return;
     var box = document.getElementById('mrtv-list');
@@ -1726,9 +1743,24 @@ function loadMrtv(){
       var cls = dl === null ? 'tbd' : (dl < 0 ? 'over' : (dl <= 30 ? 'soon' : ''));
       var amt = (c.renewalAmountCents === null || c.renewalAmountCents === undefined)
         ? 'no amount' : '$' + (c.renewalAmountCents / 100).toFixed(2).replace(/\.00$/, '');
-      return '<div class="lane-row"><div class="m"><b>' + esc(c.name) + '</b> · ' + esc(c.plan) + ' · ' + esc(c.email || 'no email') + '<br><span style="color:var(--dim);font-size:13px">' + esc(c.startDate || '') + ' → ' + esc(c.endDate || '') + ' · ' + esc(amt) + '</span>' +
-        '<br><button class="btn" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-paid="' + c.id + '" data-tv-name="' + esc(c.name) + '" data-tv-plan="' + esc(c.plan) + '">Renewal paid</button> ' +
-        '<button class="btn" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-amt="' + c.id + '" data-tv-cur="' + (c.renewalAmountCents === null || c.renewalAmountCents === undefined ? '' : (c.renewalAmountCents / 100).toFixed(2)) + '">Edit $</button></div>' +
+      var prov = '';
+      if (c.needsManual) prov += '<br><span style="color:#f0a35e;font-size:13px">⚠️ ' + esc(c.needsManual) + '</span>';
+      var lines = c.lines || [];
+      if (lines.length) {
+        prov += '<br><span style="font-size:13px;color:var(--dim)">Lines:</span> ' + lines.map(function(l){
+          return '<span style="font-size:13px">TV ' + esc(String(l.tv)) + (l.demo ? ' (demo)' : '') + ': <code>' + esc(l.username) + '</code> / <code>' + esc(l.password) + '</code></span>';
+        }).join(' · ');
+      }
+      var btns = '<br><button class="btn" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-paid="' + c.id + '" data-tv-name="' + esc(c.name) + '" data-tv-plan="' + esc(c.plan) + '">Renewal paid</button> ' +
+        '<button class="btn" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-amt="' + c.id + '" data-tv-cur="' + (c.renewalAmountCents === null || c.renewalAmountCents === undefined ? '' : (c.renewalAmountCents / 100).toFixed(2)) + '">Edit $</button> ';
+      if (!c.provisionedAt && !lines.length) {
+        btns += '<button class="btn primary" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-provision="' + c.id + '" data-tv-tvs="' + (c.tvCount || 1) + '" data-tv-name="' + esc(c.name) + '">Mark paid &amp; provision</button> ';
+        btns += '<button class="btn" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-demo="' + c.id + '" data-tv-name="' + esc(c.name) + '">Demo line</button>';
+      } else if (lines.length) {
+        btns += '<button class="btn" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-renewline="' + c.id + '" data-tv-name="' + esc(c.name) + '">Renew line</button> ';
+        btns += '<button class="btn" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-demo="' + c.id + '" data-tv-name="' + esc(c.name) + '">Demo line</button>';
+      }
+      return '<div class="lane-row"><div class="m"><b>' + esc(c.name) + '</b> · ' + esc(c.plan) + ' · ' + esc(c.email || 'no email') + (c.cell ? ' · ' + esc(c.cell) : '') + '<br><span style="color:var(--dim);font-size:13px">' + esc(c.startDate || '') + ' → ' + esc(c.endDate || '') + ' · ' + esc(amt) + ' · ' + esc(String(c.tvCount || 1)) + ' TV' + ((c.tvCount || 1) === 1 ? '' : 's') + ' · ' + esc(c.package === 'usa' ? 'USA only' : (c.package === 'all' ? 'All countries' : 'Select countries')) + (c.adultOk ? ' + adults' : '') + (c.tivimateBundle ? ' · TiviMate' : '') + '</span>' + prov + btns + '</div>' +
         '<span class="v ' + cls + '" style="font-weight:700;font-size:17px">' + (dl === null ? '—' : dl + ' days left') + '</span></div>';
     }).join('');
   }).catch(function(){});
@@ -1737,16 +1769,53 @@ document.getElementById('tv-add').addEventListener('click', function(){
   var name = document.getElementById('tv-name').value.trim();
   if (!name) { alert('Name is required.'); return; }
   var amtV = document.getElementById('tv-amount').value.trim();
-  api('/api/mrtv/customers', { method: 'POST', body: JSON.stringify({ name: name, email: document.getElementById('tv-email').value.trim(), plan: document.getElementById('tv-plan').value, start_date: document.getElementById('tv-start').value || null, notes: document.getElementById('tv-notes').value.trim(), renewal_amount_cents: amtV === '' ? null : Math.round(parseFloat(amtV) * 100) }) })
+  api('/api/mrtv/customers', { method: 'POST', body: JSON.stringify({ name: name, email: document.getElementById('tv-email').value.trim(), cell: document.getElementById('tv-cell').value.trim(), plan: document.getElementById('tv-plan').value, start_date: document.getElementById('tv-start').value || null, notes: document.getElementById('tv-notes').value.trim(), renewal_amount_cents: amtV === '' ? null : Math.round(parseFloat(amtV) * 100), tv_count: parseInt(document.getElementById('tv-tvs').value, 10) || 1, package: document.getElementById('tv-package').value, adult_ok: document.getElementById('tv-adult').checked, tivimate_bundle: document.getElementById('tv-tivimate').checked }) })
     .then(function(r){
       if (!r.ok) { alert('Failed: ' + (r.j.error || 'unknown error')); return; }
-      document.getElementById('tv-name').value = ''; document.getElementById('tv-email').value = ''; document.getElementById('tv-start').value = ''; document.getElementById('tv-notes').value = ''; document.getElementById('tv-amount').value = '';
+      document.getElementById('tv-name').value = ''; document.getElementById('tv-email').value = ''; document.getElementById('tv-cell').value = ''; document.getElementById('tv-start').value = ''; document.getElementById('tv-notes').value = ''; document.getElementById('tv-amount').value = ''; document.getElementById('tv-tvs').value = '1'; document.getElementById('tv-package').value = 'usa'; document.getElementById('tv-adult').checked = false; document.getElementById('tv-tivimate').checked = false;
       loadMrtv(); loadHome();
     });
 });
 document.getElementById('mrtv-list').addEventListener('click', function(ev){
   var paid = ev.target.getAttribute && ev.target.getAttribute('data-tv-paid');
   var amtB = ev.target.getAttribute && ev.target.getAttribute('data-tv-amt');
+  var provB = ev.target.getAttribute && ev.target.getAttribute('data-tv-provision');
+  var rlB = ev.target.getAttribute && ev.target.getAttribute('data-tv-renewline');
+  var dmB = ev.target.getAttribute && ev.target.getAttribute('data-tv-demo');
+  if (provB) {
+    var tvs = ev.target.getAttribute('data-tv-tvs') || '1';
+    if (!confirm('Mark paid & provision for ' + ev.target.getAttribute('data-tv-name') + '? Creates ' + tvs + ' panel line(s), sends the login email, and posts the ledger entry.')) return;
+    api('/api/mrtv/customers/' + provB + '/provision', { method: 'POST' }).then(function(r){
+      if (!r.ok) {
+        if (r.j && r.j.manual) { alert('Manual provisioning needed: ' + r.j.reason); loadMrtv(); return; }
+        alert('Failed: ' + ((r.j && (r.j.error || r.j.reason)) || 'unknown error')); return;
+      }
+      var msg = 'Provisioned ' + r.j.tvs + ' line(s). Email ' + (r.j.emailSent ? 'sent' : 'NOT sent') + '. Ledger ' + (r.j.ledgerPosted ? 'posted' : 'not posted') + '.';
+      if (r.j.needsManual) msg += '\n\nNeeds manual: ' + r.j.needsManual;
+      alert(msg);
+      loadMrtv(); loadHome();
+    });
+    return;
+  }
+  if (rlB) {
+    if (!confirm('Renew the panel line(s) for ' + ev.target.getAttribute('data-tv-name') + ' for one more plan period?')) return;
+    api('/api/mrtv/customers/' + rlB + '/renew-line', { method: 'POST' }).then(function(r){
+      if (!r.ok) { alert('Failed: ' + ((r.j && r.j.error) || 'unknown error')); return; }
+      var bad = (r.j.results || []).filter(function(x){ return !x.ok; });
+      alert(bad.length ? 'Some lines failed to renew:\n' + bad.map(function(x){ return 'TV ' + x.tv + ': ' + x.error; }).join('\n') : 'All lines renewed.');
+      loadMrtv();
+    });
+    return;
+  }
+  if (dmB) {
+    if (!confirm('Create a DEMO line for ' + ev.target.getAttribute('data-tv-name') + '? (Demo ticket mechanics are still unconfirmed with the parent.)')) return;
+    api('/api/mrtv/customers/' + dmB + '/demo', { method: 'POST' }).then(function(r){
+      if (!r.ok) { alert('Failed: ' + ((r.j && r.j.error) || 'unknown error')); return; }
+      alert('Demo line created.\nUsername: ' + r.j.username + '\nPassword: ' + r.j.password + '\n\n' + r.j.warn);
+      loadMrtv();
+    });
+    return;
+  }
   if (paid) {
     var nm = ev.target.getAttribute('data-tv-name'), pl = ev.target.getAttribute('data-tv-plan');
     if (!confirm('Mark renewal paid for ' + nm + ' and extend by one ' + pl + ' period?')) return;
