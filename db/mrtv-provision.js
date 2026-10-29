@@ -147,14 +147,24 @@ function fillLoginEmail(tpl, o) {
 }
 
 function mailer() {
-  if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env["SMTP_" + "PASS"]) return null;
+  // tv@ mailbox credential (TV_SMTP_USER/TV_SMTP_PASS) is preferred for the
+  // login email; falls back to the shared hello@ SMTP credential.
+  const user = process.env.TV_SMTP_USER || process.env.SMTP_USER;
+  const pass = process.env.TV_SMTP_PASS || process.env["SMTP_" + "PASS"];
+  if (!process.env.SMTP_HOST || !user || !pass) return null;
   const nodemailer = require("nodemailer");
   return nodemailer.createTransport({
     host: process.env.SMTP_HOST,
     port: Number(process.env.SMTP_PORT || 465),
     secure: Number(process.env.SMTP_PORT || 465) === 465,
-    auth: { user: process.env.SMTP_USER, pass: process.env["SMTP_" + "PASS"] },
+    auth: { user: user, pass: pass },
   });
+}
+// Literal tv@ From once TV_SMTP_USER is set; until then M.R. TV via hello@
+// with Reply-To tv@ (the renewal emails already work this way).
+function loginFrom() {
+  const tvUser = process.env.TV_SMTP_USER;
+  return "M.R. TV <" + (tvUser || "hello@apexkingdigital.com") + ">";
 }
 
 // Same payload shape as POST /api/mrtv/ledger/orders (inserted directly so
@@ -245,7 +255,7 @@ function mountMrtvProvision(app, authRequired) {
         } else {
           try {
             await ml.sendMail({
-              from: "M.R. TV <hello@apexkingdigital.com>",
+              from: loginFrom(),
               replyTo: "tv@apexkingdigital.com",
               to: c.email, subject: filled.subject, text: filled.text,
             });
