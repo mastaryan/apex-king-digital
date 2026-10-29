@@ -16,15 +16,14 @@
 //   endpoint https://tvpluspanel.ru/api/api.php (tvpluspanel.net is DNS-dead)
 //   reseller_info -> {status:"true", username, enabled, credits}
 //   bouquet templates: 36929 "USA Only - Adults", 36930 "USA Only - No Adults",
-//                       36931 "All Countries - No Adult"
+//                       36931 "All Countries - No Adult", 36937 "All Countries - Adults"
 //   new:    ?action=new&type=m3u&sub=12&pack=36930&api_key=KEY[&note=...]
 //           sub: 1 = monthly, 12 = yearly, 99 = demo (burns 1 demo ticket).
-//           The panel API also accepts 3/6, but the dashboard offers ONLY
-//           these three durations (Ryan 2026-10-29).
+//           The panel API also accepts other terms (3/6-month, 2-year), but
+//           the dashboard offers ONLY these three durations (Ryan 2026-10-29).
 //   renew:  ?action=renew&type=m3u&username=U&password=P&sub=12&api_key=KEY
-// Gaps: no "All Countries - Adults" template; new lines likely use the
-// panel's default portal host until proven otherwise; demo ticket mechanics
-// unconfirmed (Ryan is asking the parent).
+// Gaps: new lines likely use the panel's default portal host until proven
+// otherwise; demo ticket mechanics unconfirmed (Ryan is asking the parent).
 "use strict";
 
 const { getPool, pgEnabled } = require("./pg");
@@ -33,6 +32,7 @@ const PANEL_API = "https://tvpluspanel.ru/api/api.php";
 const PACK_USA_ADULT = 36929;
 const PACK_USA_NO_ADULT = 36930;
 const PACK_ALL_NO_ADULT = 36931;
+const PACK_ALL_ADULT = 36937;
 const LOW_CREDIT_WARN = 20; // warn Ryan below this many panel credits
 
 function panelKey() { return process.env.TVPLUS_API_KEY || ""; }
@@ -69,12 +69,12 @@ async function panelCall(params) {
   } finally { clearTimeout(t); }
 }
 
-// Returns { pack } or { flag } where flag is 'adult-template-missing'
-// (all countries + adults: no template exists) or 'custom-package'
-// (select-countries: no template, must be provisioned by hand).
+// Returns { pack } or { flag: 'custom-package' } (select-countries: no
+// template, must be provisioned by hand). All four package/adult combos
+// have templates now (36937 "All Countries - Adults" added 2026-10-29).
 function packFor(pkg, adult) {
   if (pkg === "usa") return { pack: adult ? PACK_USA_ADULT : PACK_USA_NO_ADULT };
-  if (pkg === "all") return adult ? { flag: "adult-template-missing" } : { pack: PACK_ALL_NO_ADULT };
+  if (pkg === "all") return { pack: adult ? PACK_ALL_ADULT : PACK_ALL_NO_ADULT };
   return { flag: "custom-package" };
 }
 
@@ -207,11 +207,8 @@ function mountMrtvProvision(app, authRequired) {
         await getPool().query("UPDATE mrtv_customers SET needs_manual = $1 WHERE id = $2", [reason, c.id]);
         return res.json({ ok: false, manual: true, reason: reason });
       }
-      // all-countries + adults: create on the no-adult template, flag for manual adult add.
-      const pack = sel.pack || PACK_ALL_NO_ADULT;
+      const pack = sel.pack;
       const manualFlags = [];
-      if (sel.flag === "adult-template-missing")
-        manualFlags.push("No 'All Countries - Adults' template exists yet — line created on All Countries - No Adult; add adults manually, or create the 4th template in the panel.");
 
       const lines = [];
       for (let i = 0; i < tvs; i++) {
