@@ -83,6 +83,24 @@ function packFor(pkg, adult) {
   return { flag: "custom-package" };
 }
 
+// The panel's action=new does NOT return username/password as top-level
+// fields (the API docs example shows only status/user_id/message/url).
+// The credentials ride inside the `url` field's query string:
+//   .../get.php?username=U&password=P&type=m3u_plus&output=ts
+// Accept top-level fields too, in case the panel version differs.
+function credsFromNewResponse(d) {
+  if (d && d.username && d.password)
+    return { username: String(d.username), password: String(d.password) };
+  if (d && d.url) {
+    try {
+      const u = new URL(String(d.url));
+      const un = u.searchParams.get("username"), pw = u.searchParams.get("password");
+      if (un && pw) return { username: un, password: pw };
+    } catch (e) { /* fall through */ }
+  }
+  return null;
+}
+
 // Login email template — kept in sync with
 // ~/workspace/iptv-reseller/login-email-template.txt (embedded here so the
 // Render deploy is self-contained).
@@ -242,8 +260,9 @@ function mountMrtvProvision(app, authRequired) {
       for (let i = 0; i < tvs; i++) {
         try {
           const d = await panelCall({ action: "new", type: "m3u", sub: String(sub), pack: String(pack), note: c.name });
-          if (!d.username || !d.password) throw new Error("panel returned no credentials");
-          lines.push({ tv: i + 1, type: "m3u", sub: sub, pack: pack, username: String(d.username), password: String(d.password), user_id: d.user_id || null, demo: false, created_at: new Date().toISOString() });
+          const creds = credsFromNewResponse(d);
+          if (!creds) throw new Error("panel returned no credentials (saw: " + JSON.stringify(d).slice(0, 160) + ")");
+          lines.push({ tv: i + 1, type: "m3u", sub: sub, pack: pack, username: creds.username, password: creds.password, user_id: d.user_id || null, demo: false, created_at: new Date().toISOString() });
         } catch (e) {
           const reason = "Panel create failed on TV " + (i + 1) + " of " + tvs + ": " + e.message + " — finish by hand in the panel.";
           await getPool().query("UPDATE mrtv_customers SET lines = $1::jsonb, needs_manual = $2 WHERE id = $3",
@@ -357,8 +376,9 @@ function mountMrtvProvision(app, authRequired) {
         ? Number(b.pack) : PACK_USA_NO_ADULT;
       const note = cleanStr(b.note, 200) || ("DEMO " + c.name);
       const d = await panelCall({ action: "new", type: "m3u", sub: "99", pack: String(pack), note: note });
-      if (!d.username || !d.password) throw new Error("panel returned no credentials");
-      const username = String(d.username), password = String(d.password);
+      const creds = credsFromNewResponse(d);
+      if (!creds) throw new Error("panel returned no credentials (saw: " + JSON.stringify(d).slice(0, 160) + ")");
+      const username = creds.username, password = creds.password;
       const lines = Array.isArray(c.lines) ? c.lines : [];
       lines.push({ tv: "demo", type: "m3u", sub: 99, pack: pack, username: username, password: password, user_id: d.user_id || null, demo: true, note: note, created_at: new Date().toISOString() });
       await getPool().query("UPDATE mrtv_customers SET lines = $1::jsonb WHERE id = $2", [JSON.stringify(lines), c.id]);
