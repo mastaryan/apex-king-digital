@@ -525,6 +525,41 @@ function mountHome(app, authRequired) {
       });
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
+  // Update an M.R. TV customer (name, email, plan, dates, notes). Any subset.
+  app.patch("/api/mrtv/customers/:id", authRequired, async (req, res) => {
+    try {
+      if (needPg(req, res)) return;
+      const b = req.body || {};
+      const sets = [], vals = [];
+      const push = (col, v) => { vals.push(v); sets.push(col + " = $" + vals.length); };
+      if (b.name !== undefined) {
+        const name = cleanStr(b.name, 120);
+        if (!name) return res.status(400).json({ error: "customer name required" });
+        push("name", name);
+      }
+      if (b.email !== undefined) {
+        const email = cleanStr(b.email, 120);
+        if (email && !isEmail(email)) return res.status(400).json({ error: "that email doesn't look right" });
+        push("email", email || null);
+      }
+      if (b.plan !== undefined) push("plan", b.plan === "monthly" ? "monthly" : "yearly");
+      const iso = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || "")) ? String(v) : null;
+      if (b.start_date !== undefined) { const s = iso(b.start_date); if (!s) return res.status(400).json({ error: "bad start_date" }); push("start_date", s); }
+      if (b.end_date !== undefined) { const s = iso(b.end_date); if (!s) return res.status(400).json({ error: "bad end_date" }); push("end_date", s); }
+      if (b.notes !== undefined) push("notes", cleanStr(b.notes, 1000) || "");
+      if (!sets.length) return res.status(400).json({ error: "nothing to update" });
+      vals.push(req.params.id);
+      const { rows } = await getPool().query(
+        "UPDATE mrtv_customers SET " + sets.join(", ") + " WHERE id = $" + vals.length +
+        " RETURNING id, name, email, plan, start_date, end_date");
+      if (!rows.length) return res.status(404).json({ error: "customer not found" });
+      const r0 = rows[0], today = nyToday();
+      res.json({ ok: true, id: r0.id, name: r0.name, email: r0.email, plan: r0.plan,
+        startDate: r0.start_date ? r0.start_date.toISOString().slice(0, 10) : null,
+        endDate: r0.end_date ? r0.end_date.toISOString().slice(0, 10) : null,
+        daysLeft: r0.end_date ? daysBetween(today, r0.end_date.toISOString().slice(0, 10)) : null });
+    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
+  });
 
   // ---------- M.R. TV profit-split ledger (Mark + Ryan, 50/50) ----------
   // Event-sourced tracker: four boxes + credits remaining, derived by
