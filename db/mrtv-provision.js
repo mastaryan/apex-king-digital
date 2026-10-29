@@ -398,6 +398,10 @@ function mountMrtvProvision(app, authRequired) {
   app.post("/api/mrtv/customers/:id/demo", authRequired, async (req, res) => {
     try {
       if (needPg(req, res)) return;
+      // DISABLED 2026-10-29 (Ryan): demos are off the table — viability in
+      // question after the live demo showed no channels. The dashboard
+      // button is gone too; remove this guard to re-enable.
+      return res.status(403).json({ error: "Demo lines are disabled." });
       const { rows } = await getPool().query("SELECT id, name, email, lines FROM mrtv_customers WHERE id = $1", [req.params.id]);
       if (!rows.length) return res.status(404).json({ error: "customer not found" });
       if (!panelKey()) return res.status(400).json({ error: "TVPLUS_API_KEY is not set in the Render env — add it, then redeploy." });

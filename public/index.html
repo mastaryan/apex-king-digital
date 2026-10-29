@@ -1755,11 +1755,12 @@ function loadMrtv(){
         '<button class="btn" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-amt="' + c.id + '" data-tv-cur="' + (c.renewalAmountCents === null || c.renewalAmountCents === undefined ? '' : (c.renewalAmountCents / 100).toFixed(2)) + '">Edit $</button> ';
       if (!c.provisionedAt && !lines.length) {
         btns += '<button class="btn primary" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-provision="' + c.id + '" data-tv-tvs="' + (c.tvCount || 1) + '" data-tv-name="' + esc(c.name) + '">Mark paid &amp; provision</button> ';
-        btns += '<button class="btn" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-demo="' + c.id + '" data-tv-name="' + esc(c.name) + '">Demo line</button>';
       } else if (lines.length) {
-        btns += '<button class="btn" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-renewline="' + c.id + '" data-tv-name="' + esc(c.name) + '">Renew line</button> ';
-        btns += '<button class="btn" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-demo="' + c.id + '" data-tv-name="' + esc(c.name) + '">Demo line</button>';
+        btns += '<button class="btn" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-renewline="' + c.id + '" data-tv-name="' + esc(c.name) + '">Renew line</button>';
       }
+      // Demo lines DISABLED 2026-10-29 (Ryan: viability in question after the
+      // live demo showed no channels). The /demo API route is also guarded
+      // server-side; re-enable both if demos come back.
       return '<div class="lane-row"><div class="m"><b>' + esc(c.name) + '</b> · ' + esc(c.plan) + ' · ' + esc(c.email || 'no email') + (c.cell ? ' · ' + esc(c.cell) : '') + '<br><span style="color:var(--dim);font-size:13px">' + esc(c.startDate || '') + ' → ' + esc(c.endDate || '') + ' · ' + esc(amt) + ' · ' + esc(String(c.tvCount || 1)) + ' TV' + ((c.tvCount || 1) === 1 ? '' : 's') + ' · ' + esc(c.package === 'usa' ? 'USA only' : (c.package === 'all' ? 'All countries' : 'Select countries')) + (c.adultOk ? ' + adults' : '') + (c.tivimateBundle ? ' · TiviMate' : '') + '</span>' + prov + btns + '</div>' +
         '<span class="v ' + cls + '" style="font-weight:700;font-size:17px">' + (dl === null ? '—' : dl + ' days left') + '</span></div>';
     }).join('');
@@ -1781,7 +1782,6 @@ document.getElementById('mrtv-list').addEventListener('click', function(ev){
   var amtB = ev.target.getAttribute && ev.target.getAttribute('data-tv-amt');
   var provB = ev.target.getAttribute && ev.target.getAttribute('data-tv-provision');
   var rlB = ev.target.getAttribute && ev.target.getAttribute('data-tv-renewline');
-  var dmB = ev.target.getAttribute && ev.target.getAttribute('data-tv-demo');
   if (provB) {
     var tvs = ev.target.getAttribute('data-tv-tvs') || '1';
     if (!confirm('Mark paid & provision for ' + ev.target.getAttribute('data-tv-name') + '? Creates ' + tvs + ' panel line(s), sends the login email, and posts the ledger entry.')) return;
@@ -1807,15 +1807,7 @@ document.getElementById('mrtv-list').addEventListener('click', function(ev){
     });
     return;
   }
-  if (dmB) {
-    if (!confirm('Create a DEMO line for ' + ev.target.getAttribute('data-tv-name') + '? (Demo ticket mechanics are still unconfirmed with the parent.)')) return;
-    api('/api/mrtv/customers/' + dmB + '/demo', { method: 'POST' }).then(function(r){
-      if (!r.ok) { alert('Failed: ' + ((r.j && r.j.error) || 'unknown error')); return; }
-      alert('Demo line created.\nUsername: ' + r.j.username + '\nPassword: ' + r.j.password + '\n\n' + r.j.warn);
-      loadMrtv();
-    });
-    return;
-  }
+
   if (paid) {
     var nm = ev.target.getAttribute('data-tv-name'), pl = ev.target.getAttribute('data-tv-plan');
     if (!confirm('Mark renewal paid for ' + nm + ' and extend by one ' + pl + ' period?')) return;

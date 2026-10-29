@@ -83,6 +83,31 @@ function addYearsISO(iso, n) {
 function daysBetween(a, b) {
   return Math.round((new Date(b + "T12:00:00Z") - new Date(a + "T12:00:00Z")) / 86400000);
 }
+function addDaysISO(iso, n) {
+  const d = new Date(iso + "T12:00:00Z");
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+// Days-left headline for an M.R. TV customer. Paid lines follow the plan
+// end_date; a customer with ONLY demo lines follows the latest demo line's
+// 24h expiry (demos are sub=99, ~1 day).
+function mrtvDaysLeft(r, today) {
+  const lines = Array.isArray(r.lines) ? r.lines : [];
+  const demos = lines.filter((l) => l.demo);
+  const live = lines.filter((l) => !l.demo);
+  // Paid lines (or no lines yet): the plan end_date governs. Demo-only:
+  // the latest demo line's 24h expiry governs.
+  if (live.length || !demos.length)
+    return r.end_date ? daysBetween(today, r.end_date.toISOString().slice(0, 10)) : null;
+  let latest = null;
+  for (const l of demos) {
+    if (l.created_at) {
+      const exp = addDaysISO(String(l.created_at).slice(0, 10), 1);
+      if (!latest || exp > latest) latest = exp;
+    }
+  }
+  return latest ? daysBetween(today, latest) : null;
+}
 
 // ---------- audit queues (real counts, live data only) ----------
 // Pending = work Ryan still has to do:
@@ -504,7 +529,7 @@ function mountHome(app, authRequired) {
           id: r.id, name: r.name, email: r.email, cell: r.cell, plan: r.plan,
           startDate: r.start_date ? r.start_date.toISOString().slice(0, 10) : null,
           endDate: r.end_date ? r.end_date.toISOString().slice(0, 10) : null,
-          daysLeft: r.end_date ? daysBetween(today, r.end_date.toISOString().slice(0, 10)) : null,
+          daysLeft: mrtvDaysLeft(r, today),
           notes: r.notes,
           renewalAmountCents: r.renewal_amount_cents,
           tvCount: r.tv_count, package: r.package, adultOk: !!r.adult_ok, tivimateBundle: !!r.tivimate_bundle,
