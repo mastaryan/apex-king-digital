@@ -286,7 +286,10 @@ function mountMrtvProvision(app, authRequired) {
       const lines = [];
       for (let i = 0; i < tvs; i++) {
         try {
-          const d = await panelCall({ action: "new", type: "m3u", sub: String(sub), pack: String(pack), note: c.name });
+          // country=US is undocumented (device_info shows 2-letter codes like
+          // "NL"). If the panel rejects it, the provision fails loudly with
+          // the panel's message and gets flagged for manual finish.
+          const d = await panelCall({ action: "new", type: "m3u", sub: String(sub), pack: String(pack), note: c.name, country: "US" });
           const creds = credsFromNewResponse(d);
           if (!creds) throw new Error("panel returned no credentials (saw: " + JSON.stringify(d).slice(0, 160) + ")");
           lines.push({ tv: i + 1, type: "m3u", sub: sub, pack: pack, username: creds.username, password: creds.password, user_id: d.user_id || null, demo: false, created_at: new Date().toISOString() });
