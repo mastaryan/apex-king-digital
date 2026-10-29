@@ -404,6 +404,9 @@ function mountMrtvProvision(app, authRequired) {
       // DISABLED 2026-10-29 (Ryan): demos are off the table — viability in
       // question after the live demo showed no channels. The dashboard
       // button is gone too; remove this guard to re-enable.
+      // RE-ENABLE CONVENTION (Ryan 2026-10-29): demo lines' Notes read
+      // "demo <name>" (e.g. "demo Mark Walker") — customer-name pattern
+      // with a demo prefix.
       return res.status(403).json({ error: "Demo lines are disabled." });
       const { rows } = await getPool().query("SELECT id, name, email, lines FROM mrtv_customers WHERE id = $1", [req.params.id]);
       if (!rows.length) return res.status(404).json({ error: "customer not found" });
@@ -412,7 +415,7 @@ function mountMrtvProvision(app, authRequired) {
       const b = req.body || {};
       const pack = [PACK_USA_ADULT, PACK_USA_NO_ADULT, PACK_ALL_NO_ADULT, PACK_ALL_ADULT].indexOf(Number(b.pack)) >= 0
         ? Number(b.pack) : PACK_USA_NO_ADULT;
-      const note = cleanStr(b.note, 200) || ("DEMO " + c.name);
+      const note = cleanStr(b.note, 200) || ("demo " + c.name);
       const d = await panelCall({ action: "new", type: "m3u", sub: "99", pack: String(pack), note: note });
       const creds = credsFromNewResponse(d);
       if (!creds) throw new Error("panel returned no credentials (saw: " + JSON.stringify(d).slice(0, 160) + ")");
