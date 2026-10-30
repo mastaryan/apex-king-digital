@@ -330,8 +330,9 @@ pre.report{white-space:pre-wrap;word-break:break-word;background:#0e0e11;border:
       <button class="btn danger sm" id="tv-cash-mark" type="button">Mark cashed out</button>
       <button class="btn danger sm" id="tv-cash-ryan" type="button">Ryan cashed out</button>
       <button class="btn danger sm" id="tv-cash-reserve" type="button">Reserve spent</button>
+      <button class="btn danger sm" id="tv-reset-all" type="button">Reset all to $0</button>
     </div>
-    <p class="note" style="margin-bottom:14px">⚠️ Cash-out buttons are <b>bookkeeping only</b> — they move no real money. Pay Mark via Cash App yourself whenever you choose, then clear his box. When reserves hit $150, buy the next pack yourself and clear the reserve box.</p>
+    <p class="note" style="margin-bottom:14px">⚠️ Cash-out buttons are <b>bookkeeping only</b> — they move no real money. Pay Mark via Cash App yourself whenever you choose, then clear his box. When reserves hit $150, buy the next pack yourself and clear the reserve box. <b>Reset all to $0</b> zeroes reserves + both owed boxes for a fresh start (lifetime sales and credits are kept) — new sales keep building reserves 50/50 from there.</p>
     <details style="margin-top:10px">
       <summary style="cursor:pointer;color:var(--dim);font-size:14px">+ Record a sale</summary>
       <div style="margin-top:10px">
@@ -1676,6 +1677,15 @@ function tvCashout(who, label){
 document.getElementById('tv-cash-mark').addEventListener('click', function(){ tvCashout('mark', 'Mark owed'); });
 document.getElementById('tv-cash-ryan').addEventListener('click', function(){ tvCashout('ryan', 'Ryan owed'); });
 document.getElementById('tv-cash-reserve').addEventListener('click', function(){ tvCashout('reserve', 'Reserves'); });
+document.getElementById('tv-reset-all').addEventListener('click', function(){
+  var b = tvBoxes || {};
+  if (!confirm('Reset ALL payout boxes to $0?\n\nReserves ' + tvMoney(b.reserveC) + ' · Mark owed ' + tvMoney(b.markOwedC) + ' · Ryan owed ' + tvMoney(b.ryanOwedC) + ' · Mark earned ' + tvMoney(b.markEarnedC) + '\n\nLifetime sales (' + tvMoney(b.lifetimeGrossC) + ') and credits (' + (b.credits == null ? '—' : b.credits) + ') are kept. New sales keep the 50/50 split with $2/credit reserves.\n\nBookkeeping only — this moves no real money.')) return;
+  api('/api/mrtv/ledger/reset', { method: 'POST' }).then(function(r){
+    if (!r.ok) { alert('Failed: ' + (r.j.error || 'unknown error')); return; }
+    alert('All boxes reset to $0. Lifetime sales and credits kept.');
+    loadLedger();
+  });
+});
 var tvNetTouched = false;
 document.getElementById('tv-ord-net').addEventListener('input', function(){ tvNetTouched = true; });
 function tvAutoNet(){
