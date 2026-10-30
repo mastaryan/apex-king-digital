@@ -679,6 +679,38 @@ function mountHome(app, authRequired) {
     const mon = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][Number(p[1]) - 1] || "";
     return mon + " " + Number(p[2]) + ", " + p[0];
   }
+  // Win-back nudge (Ryan 2026-10-29): one automatic email at day 21 past
+  // end for dormant customers who never renewed. Segmented offer, expires
+  // day 30 (stated in the email). No codes — the email is the coupon; Ryan
+  // applies the discount when the Cash App money lands ("Renewal paid" +
+  // manual sale at the discounted amount).
+  function winbackOffer(r) {
+    const amt = r.renewal_amount_cents;
+    if (r.plan === "monthly") {
+      const off = Math.round(amt / 2);
+      return {
+        subject: "We'd love you back — 50% off your next month",
+        headline: "50% off your next month",
+        detail: "Come back for " + fmtCents(off) + " instead of " + fmtCents(amt) + " — one month at half price, then back to " + fmtCents(amt) + "/month after that.",
+        payLine: "Pay " + fmtCents(off) + " here: " + MRTV_CASHAPP,
+      };
+    }
+    const offAmt = Math.max(0, amt - 1000);
+    if ((r.tv_count || 1) >= 4) {
+      return {
+        subject: "A comeback deal: $10 off + a free extra connection",
+        headline: "$10 off your yearly renewal + one free extra connection",
+        detail: "Renew for " + fmtCents(offAmt) + " instead of " + fmtCents(amt) + ", and I'll throw in an extra connection free for the whole year.",
+        payLine: "Pay " + fmtCents(offAmt) + " here: " + MRTV_CASHAPP,
+      };
+    }
+    return {
+      subject: "A comeback deal: $10 off your yearly renewal",
+      headline: "$10 off your yearly renewal",
+      detail: "Renew for " + fmtCents(offAmt) + " instead of " + fmtCents(amt) + ".",
+      payLine: "Pay " + fmtCents(offAmt) + " here: " + MRTV_CASHAPP,
+    };
+  }
   app.post("/api/mrtv/renewals/run", authRequired, async (req, res) => {
     try {
       if (needPg(req, res)) return;
@@ -723,7 +755,55 @@ function mountHome(app, authRequired) {
           try { await require("./mrtv-provision").logEmail({ kind: "renewal", customerId: r.id, to: r.email, subject: "Your M.R. TV renews in " + dl + " days", ok: false, error: em }); } catch (le) { console.error("email log", le.message); }
         }
       }
-      res.json({ ok: true, sent: sent, skipped: skipped, errors: errors });
+      // ---- win-back nudges: one email at day 21 past end ----
+      // Dormant customers who never renewed get a segmented comeback offer
+      // that expires day 30 (stated in the email). Deduped per
+      // (customer, end_date) via winback_sent_for. After day 30: silence;
+      // day 45: the delete option appears (existing rule).
+      const wbq = await getPool().query(
+        "SELECT id, name, email, plan, end_date, tv_count, renewal_amount_cents, winback_sent_for " +
+        "FROM mrtv_customers WHERE end_date IS NOT NULL");
+      let wbSent = 0, wbSkipped = 0;
+      const wbErrors = [];
+      for (const r of wbq.rows) {
+        const endIso = r.end_date.toISOString().slice(0, 10);
+        if (daysBetween(today, endIso) !== -21) continue;
+        if (r.winback_sent_for && r.winback_sent_for.toISOString().slice(0, 10) === endIso) { wbSkipped++; continue; }
+        if (!r.email) { wbErrors.push(r.name + ": no email on file"); continue; }
+        if (r.renewal_amount_cents === null || r.renewal_amount_cents === undefined) { wbErrors.push(r.name + ": no renewal amount on file"); continue; }
+        if (!mailer) { wbErrors.push("SMTP not configured on server"); break; }
+        const offer = winbackOffer(r);
+        const first = String(r.name || "").split(" ")[0] || "there";
+        const expiryIso = addDaysISO(endIso, 30);
+        const subject = offer.subject;
+        const text =
+          "Hi " + first + ",\n\n" +
+          "It's been a few weeks since your M.R. TV plan ended, and I'd love to have you back.\n\n" +
+          "Here's a comeback offer, just for you: " + offer.headline + ".\n" +
+          offer.detail + "\n\n" +
+          "This offer expires " + fmtLongDate(expiryIso) + " — after that it's gone.\n\n" +
+          offer.payLine + "\n\n" +
+          "Just reply to this email once you've paid and I'll get you set back up.\n\n" +
+          "Thanks,\nRyan — M.R. TV";
+        try {
+          const info = await mailer.sendMail({
+            from: "M.R. TV <hello@apexkingdigital.com>",
+            replyTo: "tv@apexkingdigital.com",
+            to: r.email,
+            subject: subject,
+            text: text,
+          });
+          await getPool().query("UPDATE mrtv_customers SET winback_sent_for = $1 WHERE id = $2", [endIso, r.id]);
+          try { await require("./mrtv-provision").logEmail({ kind: "winback", customerId: r.id, to: r.email, subject: subject, info: info, ok: true }); } catch (le) { console.error("email log", le.message); }
+          wbSent++;
+        } catch (e) {
+          const em = String(e.message || e).slice(0, 120);
+          wbErrors.push(r.name + ": " + em);
+          try { await require("./mrtv-provision").logEmail({ kind: "winback", customerId: r.id, to: r.email, subject: subject, ok: false, error: em }); } catch (le) { console.error("email log", le.message); }
+        }
+      }
+      res.json({ ok: true, sent: sent, skipped: skipped, errors: errors,
+        winback: { sent: wbSent, skipped: wbSkipped, errors: wbErrors } });
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
   // Event-sourced tracker: four boxes + credits remaining, derived by

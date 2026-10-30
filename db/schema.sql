@@ -360,6 +360,7 @@ CREATE TABLE IF NOT EXISTS mrtv_customers (
 );
 ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS renewal_amount_cents INTEGER;
 ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS renewal_email_sent_for DATE;
+ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS winback_sent_for DATE;
 -- One-click provisioning (2026-10-29): per-TV panel credentials live in
 -- `lines` (JSONB array: {tv, type, sub, pack, username, password, user_id,
 -- demo, created_at, renewed_at}). needs_manual is a human-readable flag for
