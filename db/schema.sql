@@ -422,9 +422,10 @@ BEGIN
 END $$;
 -- Seed (idempotent; figures verified against the M.R. TV ledger 2026-10-29):
 -- 120-credit pack @ $150 bought 2026-10-28 (funded Lou $100 + Mark $50),
--- minus 5 demo-ticket credits, minus the two pre-tracker sales (no
--- waterfall on those). Final: $110.00 lifetime / $0 reserves /
--- $50.00 Mark owed / $0 Ryan owed / 90 credits.
+-- minus 5 demo-ticket credits, minus the Lou pre-tracker sale (no waterfall
+-- on it). NOTE 2026-10-29: the Michelle pre-tracker row was deliberately
+-- DELETED by Ryan (it duplicated her live order) — it must NOT be re-added
+-- here, or re-running /api/admin/schema will resurrect it.
 INSERT INTO mrtv_ledger_events (id, kind, payload, note, created_at) VALUES
 ('11111111-1111-4111-8111-111111111111', 'seed',
  '{"credits":120,"lifetime_gross_c":0,"reserve_c":0,"mark_owed_c":5000,"ryan_owed_c":0,"repay_allocated_c":0}'::jsonb,
@@ -437,9 +438,5 @@ INSERT INTO mrtv_ledger_events (id, kind, payload, note, created_at) VALUES
 ('33333333-3333-4333-8333-333333333333', 'order',
  '{"customer":"Lou","date":"2026-10-28","gross_c":10000,"fee_c":0,"net_c":10000,"credits":24,"plan":"yearly (2 TVs)","historical":true}'::jsonb,
  'Pre-tracker sale — the $100 went to the pack; no waterfall applied.',
- '2026-10-28T12:00:02Z'),
-('44444444-4444-4444-8444-444444444444', 'order',
- '{"customer":"Michelle","date":"2026-10-28","gross_c":1000,"fee_c":41,"net_c":959,"credits":1,"plan":"monthly","historical":true}'::jsonb,
- 'Pre-tracker sale — net $9.59 held in Apex Cash App; no waterfall applied.',
- '2026-10-28T12:00:03Z')
+ '2026-10-28T12:00:02Z')
 ON CONFLICT (id) DO NOTHING;
