@@ -644,6 +644,18 @@ function mountHome(app, authRequired) {
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
 
+  // Delete an M.R. TV customer (Ryan 2026-10-29: dormant cleanup after 45
+  // days past end). Dashboard record only: their panel lines are untouched
+  // (they expire on their own) and ledger history stays as-is.
+  app.delete("/api/mrtv/customers/:id", authRequired, async (req, res) => {
+    try {
+      if (needPg(req, res)) return;
+      const { rowCount } = await getPool().query("DELETE FROM mrtv_customers WHERE id = $1", [req.params.id]);
+      if (!rowCount) return res.status(404).json({ error: "customer not found" });
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
+  });
+
   // M.R. TV renewal invoice automation (Ryan 2026-10-29: "Build it!").
   // Fires 5 days before a monthly renewal, 15 days before a yearly one.
   // One email per (customer, end_date) cycle — deduped via
