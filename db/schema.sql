@@ -404,6 +404,7 @@ CREATE TABLE IF NOT EXISTS mrtv_ledger_events (
 -- 2026-10-29: allow the 'reserve_adjust' event kind (Mark settlement).
 -- Idempotent: no-ops when the live constraint already permits it (e.g.
 -- fresh databases, where the CREATE TABLE above already includes it).
+-- NOTE: Postgres stores IN-lists as "= ANY (ARRAY[...])", so match on that.
 DO $$
 DECLARE
   cname text;
@@ -411,7 +412,7 @@ DECLARE
 BEGIN
   SELECT conname, pg_get_constraintdef(oid) INTO cname, cdef FROM pg_constraint
   WHERE conrelid = 'mrtv_ledger_events'::regclass AND contype = 'c'
-    AND pg_get_constraintdef(oid) LIKE '%kind IN%';
+    AND pg_get_constraintdef(oid) LIKE '%kind = ANY%';
   IF cname IS NOT NULL AND cdef NOT LIKE '%reserve_adjust%' THEN
     EXECUTE 'ALTER TABLE mrtv_ledger_events DROP CONSTRAINT ' || quote_ident(cname);
     ALTER TABLE mrtv_ledger_events ADD CONSTRAINT mrtv_ledger_events_kind_check
