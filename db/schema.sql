@@ -396,14 +396,15 @@ CREATE TABLE IF NOT EXISTS mrtv_email_log (
 CREATE TABLE IF NOT EXISTS mrtv_ledger_events (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   seq        BIGSERIAL,
-  kind       TEXT NOT NULL CHECK (kind IN ('seed','order','credit_use','pack','cashout_mark','cashout_ryan','cashout_reserve','reserve_adjust')),
+  kind       TEXT NOT NULL CHECK (kind IN ('seed','order','credit_use','pack','cashout_mark','cashout_ryan','cashout_reserve','reserve_adjust','reset_boxes')),
   payload    JSONB NOT NULL DEFAULT '{}'::jsonb,
   note       TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
--- 2026-10-29: allow the 'reserve_adjust' event kind (Mark settlement).
--- Idempotent: no-ops when the live constraint already permits it (e.g.
--- fresh databases, where the CREATE TABLE above already includes it).
+-- 2026-10-29: allow the 'reserve_adjust' and 'reset_boxes' event kinds
+-- (Mark settlement; Ryan's fresh-start reset).
+-- Idempotent: no-ops when the live constraint already permits them (e.g.
+-- fresh databases, where the CREATE TABLE above already includes them).
 -- NOTE: Postgres stores IN-lists as "= ANY (ARRAY[...])", so match on that.
 DO $$
 DECLARE
@@ -413,10 +414,10 @@ BEGIN
   SELECT conname, pg_get_constraintdef(oid) INTO cname, cdef FROM pg_constraint
   WHERE conrelid = 'mrtv_ledger_events'::regclass AND contype = 'c'
     AND pg_get_constraintdef(oid) LIKE '%kind = ANY%';
-  IF cname IS NOT NULL AND cdef NOT LIKE '%reserve_adjust%' THEN
+  IF cname IS NOT NULL AND cdef NOT LIKE '%reset_boxes%' THEN
     EXECUTE 'ALTER TABLE mrtv_ledger_events DROP CONSTRAINT ' || quote_ident(cname);
     ALTER TABLE mrtv_ledger_events ADD CONSTRAINT mrtv_ledger_events_kind_check
-      CHECK (kind IN ('seed','order','credit_use','pack','cashout_mark','cashout_ryan','cashout_reserve','reserve_adjust'));
+      CHECK (kind IN ('seed','order','credit_use','pack','cashout_mark','cashout_ryan','cashout_reserve','reserve_adjust','reset_boxes'));
   END IF;
 END $$;
 -- Seed (idempotent; figures verified against the M.R. TV ledger 2026-10-29):

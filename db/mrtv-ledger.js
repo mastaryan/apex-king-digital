@@ -22,6 +22,10 @@
 //  - 'reserve_adjust' events are manual reserve corrections (e.g. catch-up
 //    for a paid line that never ran the waterfall). Reversible like any
 //    other event.
+//  - 'reset_boxes' zeroes reserves + both owed boxes + Mark earned (Ryan's
+//    fresh start 2026-10-29); lifetime, credits and the locked repay phase
+//    are kept, and future sales run the 50/50 waterfall with $2/credit
+//    reserves from there on out.
 //  - All money math in integer cents. No invented figures.
 //
 // Cash-out buttons are BOOKKEEPING ONLY: they zero a box and record the
@@ -127,6 +131,16 @@ function computeLedger(events) {
       case "cashout_reserve":
         st.reserveC = 0;
         break;
+      case "reset_boxes":
+        // Ryan 2026-10-29: fresh start. Zeroes reserves + both owed boxes +
+        // Mark's earned figure. Lifetime sales, credits and the locked
+        // repay phase are untouched. Future sales keep the 50/50 waterfall
+        // with $2/credit reserves from here on out.
+        st.reserveC = 0;
+        st.markOwedC = 0;
+        st.ryanOwedC = 0;
+        st.markEarnedC = 0;
+        break;
       case "reserve_adjust":
         // Manual reserve correction (Ryan 2026-10-29). Reversible like any
         // other event. Floored at $0 — a correction can't drive reserves
@@ -190,6 +204,14 @@ function describeEvent(e, fx) {
     case "cashout_reserve":
       out.title = "Reserve spent";
       out.detail = "Cleared " + fmtC(p.cleared_c | 0) + " · bookkeeping only, no money moved";
+      break;
+    case "reset_boxes":
+      out.title = "Reset all to $0";
+      out.detail = "Cleared reserve " + fmtC(p.cleared_reserve_c | 0) +
+        " · Mark owed " + fmtC(p.cleared_mark_c | 0) +
+        " · Ryan owed " + fmtC(p.cleared_ryan_c | 0) +
+        " · Mark earned " + fmtC(p.cleared_earned_c | 0) +
+        " · lifetime + credits kept";
       break;
     case "reserve_adjust":
       out.title = "Reserve adjustment";
@@ -326,6 +348,27 @@ function mountMrtvLedger(app, authRequired) {
         "INSERT INTO mrtv_ledger_events (kind, payload, note) VALUES ('reserve_adjust', $1::jsonb, $2) RETURNING id",
         [JSON.stringify({ amount_c: signedC }), cleanStr(b.note, 300) || "reserve adjustment"]);
       res.json({ ok: true, id: rows[0].id });
+    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
+  });
+
+  // Reset all boxes to $0 (Ryan 2026-10-29): fresh start. Zeroes reserves +
+  // both owed boxes + Mark's earned figure; lifetime sales, credits and the
+  // locked repay phase are kept. Reusable — after any future payout he can
+  // press it again. Reversible: deleting the event restores via replay.
+  app.post("/api/mrtv/ledger/reset", authRequired, async (req, res) => {
+    try {
+      if (needPg(req, res)) return;
+      const { state } = await currentState();
+      const payload = {
+        cleared_reserve_c: state.reserveC,
+        cleared_mark_c: state.markOwedC,
+        cleared_ryan_c: state.ryanOwedC,
+        cleared_earned_c: state.markEarnedC,
+      };
+      const { rows } = await getPool().query(
+        "INSERT INTO mrtv_ledger_events (kind, payload, note) VALUES ('reset_boxes', $1::jsonb, $2) RETURNING id",
+        [JSON.stringify(payload), "fresh start — lifetime + credits kept"]);
+      res.json({ ok: true, id: rows[0].id, cleared: payload });
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
 }
