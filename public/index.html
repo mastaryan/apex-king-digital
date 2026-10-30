@@ -327,11 +327,12 @@ pre.report{white-space:pre-wrap;word-break:break-word;background:#0e0e11;border:
     <p class="note" id="tv-credits-line" style="margin-bottom:4px"></p>
     <p class="note" id="tv-panel-line" style="margin-bottom:10px"></p>
     <div class="mactions" style="justify-content:flex-start;gap:8px;margin-bottom:6px">
+      <button class="btn danger sm" id="tv-cash-mark" type="button">Mark cashed out</button>
       <button class="btn danger sm" id="tv-cash-ryan" type="button">Ryan cashed out</button>
       <button class="btn danger sm" id="tv-cash-reserve" type="button">Reserve spent</button>
       <button class="btn danger sm" id="tv-reset-all" type="button">Reset all to $0</button>
     </div>
-    <p class="note" style="margin-bottom:14px">⚠️ Cash-out buttons are <b>bookkeeping only</b> — they move no real money. When reserves hit $150, buy the next pack yourself and clear the reserve box. <b>Reset all to $0</b> zeroes the payout boxes for a fresh start (lifetime sales and credits are kept) — new sales keep building reserves 50/50 from there.</p>
+    <p class="note" style="margin-bottom:14px">⚠️ Cash-out buttons are <b>bookkeeping only</b> — they move no real money. Either partner can cash out their balance, or apply what they're owed toward the next pack when recording it below. When reserves hit $150, buy the next pack yourself and clear the reserve box. <b>Reset all to $0</b> zeroes the payout boxes for a fresh start (lifetime sales and credits are kept) — new sales keep building reserves 50/50 from there.</p>
     <details style="margin-top:10px">
       <summary style="cursor:pointer;color:var(--dim);font-size:14px">+ Record a manual sale</summary>
       <div style="margin-top:10px">
@@ -358,6 +359,10 @@ pre.report{white-space:pre-wrap;word-break:break-word;background:#0e0e11;border:
         <div class="frow">
           <div class="field"><label>Credits added *</label><input id="tv-pack-credits" inputmode="numeric" placeholder="120" /></div>
           <div class="field"><label>Cost $ (from reserves)</label><input id="tv-pack-cost" inputmode="decimal" placeholder="150.00" /></div>
+        </div>
+        <div class="frow">
+          <div class="field"><label>Mark applies $ owed (optional)</label><input id="tv-pack-mark" inputmode="decimal" placeholder="0.00" /></div>
+          <div class="field"><label>Ryan applies $ owed (optional)</label><input id="tv-pack-ryan" inputmode="decimal" placeholder="0.00" /></div>
         </div>
         <div class="mactions" style="justify-content:flex-start"><button class="btn primary" id="tv-pack-add" type="button">Record pack</button></div>
         <p class="note">Adds the credits and subtracts the cost from reserves (reserves never go below $0).</p>
@@ -1643,10 +1648,11 @@ function loadLedger(){
     };
     document.getElementById('tv-boxes').innerHTML =
       card('Lifetime earnings', b.lifetimeGrossC) + card('Reserves (next pack)', b.reserveC) +
+      '<div class="lane-row" style="display:block;margin-bottom:0"><div style="font-size:13px;color:var(--dim)">Mark\'s Earned</div><div style="font-size:22px;font-weight:700">' + tvMoney(b.markEarnedC) + '</div><div style="font-size:12px;color:var(--dim)">Mark owed: ' + tvMoney(b.markOwedC) + '</div></div>' +
       card('Ryan\'s Earned', b.ryanOwedC);
     document.getElementById('tv-credits-line').textContent = 'Credits remaining: ' + (b.credits == null ? '—' : b.credits);
     var dis = function(id, cents){ var el = document.getElementById(id); el.disabled = !(cents > 0); el.style.opacity = cents > 0 ? '' : '.45'; };
-    dis('tv-cash-ryan', b.ryanOwedC); dis('tv-cash-reserve', b.reserveC);
+    dis('tv-cash-mark', b.markOwedC); dis('tv-cash-ryan', b.ryanOwedC); dis('tv-cash-reserve', b.reserveC);
     var h = r.j.events || [];
     document.getElementById('tv-history').innerHTML = h.length ? h.map(function(e){
       return '<div class="lane-row"><div class="m"><b>' + esc(e.title) + '</b><br><span style="color:var(--dim);font-size:13px">' + esc(e.detail || '') + '</span></div>' +
@@ -1673,6 +1679,7 @@ function tvCashout(who, label){
     loadLedger();
   });
 }
+document.getElementById('tv-cash-mark').addEventListener('click', function(){ tvCashout('mark', 'Mark owed'); });
 document.getElementById('tv-cash-ryan').addEventListener('click', function(){ tvCashout('ryan', 'Ryan owed'); });
 document.getElementById('tv-cash-reserve').addEventListener('click', function(){ tvCashout('reserve', 'Reserves'); });
 document.getElementById('tv-reset-all').addEventListener('click', function(){
@@ -1714,10 +1721,13 @@ document.getElementById('tv-pack-add').addEventListener('click', function(){
   var credits = document.getElementById('tv-pack-credits').value.trim();
   if (!/^\d+$/.test(credits) || credits === '0') { alert('Credits added must be a positive whole number.'); return; }
   api('/api/mrtv/ledger/packs', { method: 'POST', body: JSON.stringify({
-    credits_added: credits, cost: document.getElementById('tv-pack-cost').value.trim() || '150'
+    credits_added: credits, cost: document.getElementById('tv-pack-cost').value.trim() || '150',
+    mark_applied: document.getElementById('tv-pack-mark').value.trim(),
+    ryan_applied: document.getElementById('tv-pack-ryan').value.trim()
   })}).then(function(r){
     if (!r.ok) { alert('Failed: ' + (r.j.error || 'unknown error')); return; }
     document.getElementById('tv-pack-credits').value = ''; document.getElementById('tv-pack-cost').value = '';
+    document.getElementById('tv-pack-mark').value = ''; document.getElementById('tv-pack-ryan').value = '';
     loadLedger();
   });
 });

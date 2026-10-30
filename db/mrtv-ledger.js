@@ -32,6 +32,9 @@
 // cleared amount. Real money moves by hand (Ryan pays Mark via Cash App
 // whenever he chooses, then clears the box; when reserves hit $150 he
 // buys the next pack manually and clears the reserve box).
+// Either partner can also apply their owed balance toward a pack purchase:
+// the applied amounts come off their owed boxes and reduce what the pack
+// draws from reserves.
 "use strict";
 const { getPool, pgEnabled } = require("./pg");
 
@@ -114,12 +117,20 @@ function computeLedger(events) {
       case "credit_use":
         st.credits -= p.credits | 0;
         break;
-      case "pack":
+      case "pack": {
+        // Partners can apply their owed balance toward the pack (Ryan
+        // 2026-10-29): the applied amounts come off their owed boxes and
+        // reduce what the pack draws from reserves.
+        const mApp = Math.max(0, Math.min(p.mark_applied_c | 0, st.markOwedC));
+        const rApp = Math.max(0, Math.min(p.ryan_applied_c | 0, st.ryanOwedC));
+        st.markOwedC -= mApp;
+        st.ryanOwedC -= rApp;
         st.credits += p.credits_added | 0;
         // Reserve never goes negative: a pack bought with outside money
         // just zeroes it (the clear button exists for the same reason).
-        st.reserveC = Math.max(0, st.reserveC - (p.cost_c | 0));
+        st.reserveC = Math.max(0, st.reserveC - Math.max(0, (p.cost_c | 0) - mApp - rApp));
         break;
+      }
       case "cashout_mark":
         // Cleared box = Mark settled => his contribution is repaid.
         st.markOwedC = 0;
@@ -191,7 +202,10 @@ function describeEvent(e, fx) {
       break;
     case "pack":
       out.title = "Pack purchase · +" + (p.credits_added | 0) + " credits";
-      out.detail = "Cost " + fmtC(p.cost_c | 0) + " from reserves" + (e.note ? " · " + e.note : "");
+      out.detail = "Cost " + fmtC(p.cost_c | 0) + " from reserves" +
+        ((p.mark_applied_c | 0) ? " · Mark applied " + fmtC(p.mark_applied_c | 0) : "") +
+        ((p.ryan_applied_c | 0) ? " · Ryan applied " + fmtC(p.ryan_applied_c | 0) : "") +
+        (e.note ? " · " + e.note : "");
       break;
     case "cashout_mark":
       out.title = "Mark cashed out";
@@ -293,7 +307,14 @@ function mountMrtvLedger(app, authRequired) {
         return res.status(400).json({ error: "credits added must be a positive whole number" });
       const costC = dollarsToCents(b.cost === undefined || b.cost === "" ? "150" : b.cost);
       if (costC === null) return res.status(400).json({ error: "cost must be a number" });
-      const payload = { credits_added: creditsAdded, cost_c: costC };
+      const markAppC = dollarsToCents(b.mark_applied === undefined || b.mark_applied === "" ? "0" : b.mark_applied);
+      if (markAppC === null) return res.status(400).json({ error: "Mark applied must be a number" });
+      const ryanAppC = dollarsToCents(b.ryan_applied === undefined || b.ryan_applied === "" ? "0" : b.ryan_applied);
+      if (ryanAppC === null) return res.status(400).json({ error: "Ryan applied must be a number" });
+      const { state } = await currentState();
+      if (markAppC > state.markOwedC) return res.status(400).json({ error: "Mark can't apply more than he's owed (" + fmtC(state.markOwedC) + ")" });
+      if (ryanAppC > state.ryanOwedC) return res.status(400).json({ error: "Ryan can't apply more than he's owed (" + fmtC(state.ryanOwedC) + ")" });
+      const payload = { credits_added: creditsAdded, cost_c: costC, mark_applied_c: markAppC, ryan_applied_c: ryanAppC };
       const { rows } = await getPool().query(
         "INSERT INTO mrtv_ledger_events (kind, payload, note) VALUES ('pack', $1::jsonb, $2) RETURNING id",
         [JSON.stringify(payload), cleanStr(b.note, 300)]);
