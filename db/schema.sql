@@ -396,7 +396,7 @@ CREATE TABLE IF NOT EXISTS mrtv_email_log (
 CREATE TABLE IF NOT EXISTS mrtv_ledger_events (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   seq        BIGSERIAL,
-  kind       TEXT NOT NULL CHECK (kind IN ('seed','order','credit_use','pack','cashout_mark','cashout_ryan','cashout_reserve')),
+  kind       TEXT NOT NULL CHECK (kind IN ('seed','order','credit_use','pack','cashout_mark','cashout_ryan','cashout_reserve','reserve_adjust')),
   payload    JSONB NOT NULL DEFAULT '{}'::jsonb,
   note       TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()

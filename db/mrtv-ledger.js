@@ -5,19 +5,23 @@
 // Deleting an event reverses its effect exactly (replay from scratch).
 //
 // "Mark earned" is a fifth derived figure, cumulative and display-only: it
-// counts UP by Mark's waterfall share on every (non-historical) order —
-// 75% shares while his $50 is being repaid, 50% after — while "Mark owed"
-// counts DOWN as those same shares repay him. Cashing Mark out zeroes the
-// owed box but never resets earned (earned is informational; owed is what
-// can be cleared).
+// counts UP by Mark's waterfall share on every (non-historical) order.
+// Cashing Mark out zeroes the owed box but never resets earned (earned is
+// informational; owed is what can be cleared).
 //
-// Rules (Ryan, 2026-10-29 — implemented exactly):
-//  - Reserve: $2.00 per credit sold, taken from each sale's net revenue.
+// Rules (Ryan — current as of 2026-10-29 settlement):
+//  - Reserve: $2.00 per credit sold, taken from each sale's net revenue,
+//    PAID LINES ONLY. Free/comp lines (net $0) generate zero reserve.
 //    The reserve funds the next $150 pack.
-//  - Revenue tracked NET of fees (Cash App ~2.6% + $0.15).
+//  - Revenue tracked NET of fees (Cash App ~2.75%).
 //  - Waterfall per new net dollar: (1) $2/credit into reserves ->
-//    (2) 75% Mark / 25% Ryan until Mark's $50 pack contribution is fully
-//    repaid -> (3) 50/50 after that.
+//    (2) straight 50/50 Mark / Ryan. The old 75/25 payback phase ENDED
+//    2026-10-29: Mark was cashed out ($43 real + 4 free yearly TVs as final
+//    settlement for his $50 pack contribution — Ryan's call: he's even),
+//    his box is $0 and the phase is locked (repayAllocated = target).
+//  - 'reserve_adjust' events are manual reserve corrections (e.g. catch-up
+//    for a paid line that never ran the waterfall). Reversible like any
+//    other event.
 //  - All money math in integer cents. No invented figures.
 //
 // Cash-out buttons are BOOKKEEPING ONLY: they zero a box and record the
@@ -67,7 +71,10 @@ function computeLedger(events) {
         st.lifetimeGrossC += grossC;
         st.credits -= cr;
         if (!p.historical) {
-          const take = Math.min(RESERVE_PER_CREDIT_C * cr, netC);
+          // Ryan 2026-10-29: reserve ONLY on paid lines. Free/comp lines
+          // (net $0) generate zero reserve. Net is never negative, so the
+          // guard is equivalent to the plain min() for every paid order.
+          const take = netC > 0 ? Math.min(RESERVE_PER_CREDIT_C * cr, netC) : 0;
           st.reserveC += take;
           const rem = netC - take;
           if (st.repayAllocatedC < MARK_REPAY_TARGET_C) {
@@ -119,6 +126,12 @@ function computeLedger(events) {
         break;
       case "cashout_reserve":
         st.reserveC = 0;
+        break;
+      case "reserve_adjust":
+        // Manual reserve correction (Ryan 2026-10-29). Reversible like any
+        // other event. Floored at $0 — a correction can't drive reserves
+        // negative.
+        st.reserveC = Math.max(0, st.reserveC + (p.amount_c | 0));
         break;
       default:
         break;
@@ -177,6 +190,10 @@ function describeEvent(e, fx) {
     case "cashout_reserve":
       out.title = "Reserve spent";
       out.detail = "Cleared " + fmtC(p.cleared_c | 0) + " · bookkeeping only, no money moved";
+      break;
+    case "reserve_adjust":
+      out.title = "Reserve adjustment";
+      out.detail = fmtSignedC(p.amount_c | 0) + (e.note ? " · " + e.note : "");
       break;
     default:
       out.title = e.kind;
@@ -291,6 +308,24 @@ function mountMrtvLedger(app, authRequired) {
         "INSERT INTO mrtv_ledger_events (kind, payload, note) VALUES ($1, $2::jsonb, $3) RETURNING id",
         ["cashout_" + who, JSON.stringify({ cleared_c: clearedC }), "bookkeeping only — no money moved"]);
       res.json({ ok: true, id: rows[0].id, clearedC });
+    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
+  });
+  // Reserve adjustment: manual correction (Ryan 2026-10-29). Positive adds to
+  // reserves, negative removes (floored at $0 by the replay). Reversible —
+  // deleting the event reverses it exactly.
+  app.post("/api/mrtv/ledger/reserve-adjust", authRequired, async (req, res) => {
+    try {
+      if (needPg(req, res)) return;
+      const b = req.body || {};
+      const rawAmt = String(b.amount == null ? "" : b.amount).trim();
+      const neg = rawAmt.startsWith("-");
+      const amountC = dollarsToCents(neg ? rawAmt.slice(1) : rawAmt);
+      if (amountC === null) return res.status(400).json({ error: "amount must be a number" });
+      const signedC = neg ? -amountC : amountC;
+      const { rows } = await getPool().query(
+        "INSERT INTO mrtv_ledger_events (kind, payload, note) VALUES ('reserve_adjust', $1::jsonb, $2) RETURNING id",
+        [JSON.stringify({ amount_c: signedC }), cleanStr(b.note, 300) || "reserve adjustment"]);
+      res.json({ ok: true, id: rows[0].id });
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
 }
