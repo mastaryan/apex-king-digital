@@ -36,7 +36,7 @@ const PACK_ALL_ADULT = 36937;
 const LOW_CREDIT_WARN = 20; // warn Ryan below this many panel credits
 
 function panelKey() { return process.env.TVPLUS_API_KEY || ""; }
-function lineServer() { return process.env.LINE_SERVER_URL || "http://line.tvdeluxe.us"; }
+function lineServer() { return process.env.LINE_SERVER_URL || "http://line.watchmrtv.com"; }
 function cleanStr(s, n) { return String(s || "").trim().slice(0, n || 200); }
 function nyToday() { return new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }); }
 function addDaysISO(iso, n) {
@@ -119,7 +119,7 @@ const LOGIN_TEMPLATE = [
   "Username: [USERNAME]",
   "Password: [PASSWORD]",
   "",
-  "Server URL (every TV): http://line.tvdeluxe.us",
+  "Server URL (every TV): http://line.watchmrtv.com",
   "",
   "SETUP (about 5 minutes, step-by-step):",
   "https://mrtv-tv.netlify.app/guide.html",
@@ -155,7 +155,7 @@ function fillLoginEmail(tpl, o) {
   s = s.replace(
     /TV 1 \u2014 \[e\.g\. Living Room\]\nUsername: \[USERNAME\]\nPassword: \[PASSWORD\]\n\nTV 2 \u2014 \[e\.g\. Bedroom\]\nUsername: \[USERNAME\]\nPassword: \[PASSWORD\]/,
     blocks);
-  s = s.split("http://line.tvdeluxe.us").join(o.serverUrl);
+  s = s.split("http://line.watchmrtv.com").join(o.serverUrl);
   const tivRe = /--- ONLY IF THEY BOUGHT THE TIVIMATE BUNDLE, ADD THIS BLOCK ---\n([\s\S]*?)\n---/;
   if (o.tivimateEmail) {
     s = s.replace(tivRe, function (mt, inner) {
