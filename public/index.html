@@ -1409,7 +1409,7 @@ function loadHome(){
       homeCard('email', 'Email', '<span id="home-email-n">…</span>', '<span id="home-email-s">Resend</span>') +
       homeCard('customers', 'Customers', esc(h.customers.total) + ' <small>customers</small>', 'searchable list') +
       homeCard('mockups', 'Mock-ups', esc(h.mockups.total) + ' <small>mock-ups</small>', esc(h.mockups.draft) + ' draft' + (h.mockups.live ? ' · ' + h.mockups.live + ' live' : '')) +
-      homeCard('mrtv', 'M.R. TV', esc(h.mrtv.total) + ' <small>customers</small>', 'coming soon');
+      homeCard('mrtv', 'M.R. TV', esc(h.mrtv.total) + ' <small>customers</small>', h.mrtv.soonestEnd ? 'next renewal ' + fmtDate(h.mrtv.soonestEnd) : 'no customers yet');
     loadEmailStats(true);
   }).catch(function(){});
 }
