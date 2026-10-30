@@ -401,6 +401,23 @@ CREATE TABLE IF NOT EXISTS mrtv_ledger_events (
   note       TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- 2026-10-29: allow the 'reserve_adjust' event kind (Mark settlement).
+-- Idempotent: no-ops when the live constraint already permits it (e.g.
+-- fresh databases, where the CREATE TABLE above already includes it).
+DO $$
+DECLARE
+  cname text;
+  cdef  text;
+BEGIN
+  SELECT conname, pg_get_constraintdef(oid) INTO cname, cdef FROM pg_constraint
+  WHERE conrelid = 'mrtv_ledger_events'::regclass AND contype = 'c'
+    AND pg_get_constraintdef(oid) LIKE '%kind IN%';
+  IF cname IS NOT NULL AND cdef NOT LIKE '%reserve_adjust%' THEN
+    EXECUTE 'ALTER TABLE mrtv_ledger_events DROP CONSTRAINT ' || quote_ident(cname);
+    ALTER TABLE mrtv_ledger_events ADD CONSTRAINT mrtv_ledger_events_kind_check
+      CHECK (kind IN ('seed','order','credit_use','pack','cashout_mark','cashout_ryan','cashout_reserve','reserve_adjust'));
+  END IF;
+END $$;
 -- Seed (idempotent; figures verified against the M.R. TV ledger 2026-10-29):
 -- 120-credit pack @ $150 bought 2026-10-28 (funded Lou $100 + Mark $50),
 -- minus 5 demo-ticket credits, minus the two pre-tracker sales (no
