@@ -394,10 +394,10 @@ pre.report{white-space:pre-wrap;word-break:break-word;background:#0e0e11;border:
         <div class="frow">
           <div class="field"><label>Plan</label><select id="tv-plan" style="width:100%;background:#0e0e11;border:1px solid var(--line);border-radius:10px;color:var(--silver);font-size:15px;padding:10px 14px;font-family:inherit"><option value="yearly">Yearly (end = start + 1 year)</option><option value="monthly">Monthly (end = start + 1 month)</option></select></div>
           <div class="field"><label>Start date (invoice date)</label><input id="tv-start" type="date" /></div>
-          <div class="field"><label>Renewal amount ($)</label><input id="tv-amount" type="number" min="0" step="0.01" placeholder="10.00" /></div>
+          <div class="field"><label>Renewal amount ($)</label><input id="tv-amount" type="number" min="0" step="0.01" /></div>
         </div>
         <div class="frow">
-          <div class="field"><label>Cell</label><input id="tv-cell" placeholder="(606) 555-0100" /></div>
+          <div class="field"><label>Cell</label><input id="tv-cell" /></div>
           <div class="field"><label>TVs</label><input id="tv-tvs" type="number" min="1" max="10" value="1" /></div>
           <div class="field"><label>Channel package</label><select id="tv-package" style="width:100%;background:#0e0e11;border:1px solid var(--line);border-radius:10px;color:var(--silver);font-size:15px;padding:10px 14px;font-family:inherit"><option value="usa">USA only</option><option value="all">All countries</option><option value="custom">Select countries (manual)</option></select></div>
         </div>
@@ -1802,6 +1802,25 @@ function tvCustomerRow(c, dormant){
       dormant.map(function(c){ return tvCustomerRow(c, true); }).join('') + '</div></details>' : '';
   }).catch(function(){});
 }
+// Renewal amount auto-defaults to the plan's sale price (Ryan 2026-10-30):
+// monthly 1 TV $10 / 2 TVs $15 / +$3 per extra; yearly 1 TV $80 / 2 TVs
+// $100 / +$25 per extra. Typing in the field locks it (manual override,
+// e.g. a sale price); changing plan/TVs re-fills only while untouched.
+var tvAmtTouched = false;
+function tvPlanPriceCents(){
+  var plan = document.getElementById('tv-plan').value;
+  var tvs = Math.max(1, parseInt(document.getElementById('tv-tvs').value, 10) || 1);
+  if (plan === 'monthly') return tvs === 1 ? 1000 : 1500 + (tvs - 2) * 300;
+  return tvs === 1 ? 8000 : 10000 + (tvs - 2) * 2500;
+}
+function tvAutoAmount(){
+  if (tvAmtTouched) return;
+  document.getElementById('tv-amount').value = (tvPlanPriceCents() / 100).toFixed(2);
+}
+document.getElementById('tv-amount').addEventListener('input', function(){ tvAmtTouched = true; });
+document.getElementById('tv-plan').addEventListener('change', tvAutoAmount);
+document.getElementById('tv-tvs').addEventListener('input', tvAutoAmount);
+tvAutoAmount();
 document.getElementById('tv-add').addEventListener('click', function(){
   var name = document.getElementById('tv-name').value.trim();
   if (!name) { alert('Name is required.'); return; }
@@ -1810,6 +1829,7 @@ document.getElementById('tv-add').addEventListener('click', function(){
     .then(function(r){
       if (!r.ok) { alert('Failed: ' + (r.j.error || 'unknown error')); return; }
       document.getElementById('tv-name').value = ''; document.getElementById('tv-email').value = ''; document.getElementById('tv-cell').value = ''; document.getElementById('tv-start').value = ''; document.getElementById('tv-notes').value = ''; document.getElementById('tv-amount').value = ''; document.getElementById('tv-tvs').value = '1'; document.getElementById('tv-package').value = 'usa'; document.getElementById('tv-adult').checked = false; document.getElementById('tv-tivimate').checked = false;
+      tvAmtTouched = false; tvAutoAmount();
       loadMrtv(); loadHome();
     });
 });
