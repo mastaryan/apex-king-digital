@@ -602,6 +602,7 @@ function mountHome(app, authRequired) {
         push("renewal_amount_cents", amt);
       }
       if (b.cell !== undefined) push("cell", cleanStr(b.cell, 40) || null);
+      if (b.order_code !== undefined) push("order_code", cleanStr(b.order_code, 24) || null);
       if (b.tv_count !== undefined) {
         const tvs = Math.max(1, Math.min(10, parseInt(b.tv_count, 10) || 1));
         push("tv_count", tvs);
