@@ -218,6 +218,35 @@ function mountMrtvProvision(app, authRequired) {
     } catch (e) { res.json({ ok: false, from: loginFrom(), error: String(e.message || e).slice(0, 200) }); }
   });
 
+  // TEST ONLY: send a filled login email to an arbitrary address via the
+  // normal template + mailer. Creates no panel line and no customer record.
+  app.post("/api/mrtv/email/test-send", authRequired, async (req, res) => {
+    try {
+      if (needPg(req, res)) return;
+      const b = req.body || {};
+      const to = cleanStr(b.to, 120);
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return res.status(400).json({ error: "valid 'to' email required" });
+      const tvLines = (Array.isArray(b.tvLines) ? b.tvLines : []).slice(0, 10)
+        .map((l) => ({ username: cleanStr(l && l.username, 60) || "test", password: cleanStr(l && l.password, 60) || "test" }));
+      if (!tvLines.length) tvLines.push({ username: "test", password: "test" });
+      const filled = fillLoginEmail(LOGIN_TEMPLATE, {
+        firstName: cleanStr(b.firstName, 40) || "there",
+        planDesc: cleanStr(b.planDesc, 80) || "test",
+        expiry: cleanStr(b.expiry, 40) || "",
+        tvLines: tvLines,
+        serverUrl: cleanStr(b.serverUrl, 120) || lineServer(),
+        tivimateEmail: null,
+        orderCode: cleanStr(b.orderCode, 24) || "MR-TEST",
+      });
+      const ml = mailer();
+      if (!ml) return res.status(500).json({ error: "SMTP not configured on server" });
+      const subject = "[TEST] " + filled.subject;
+      const info = await ml.sendMail({ from: loginFrom(), replyTo: "tv@watchmrtv.com", to: to, subject: subject, text: filled.text });
+      try { await logEmail({ kind: "test", customer_id: null, to_email: to, subject: subject, message_id: info.messageId || null, smtp_response: String(info.response || "").slice(0, 500), ok: true, error: null }); } catch (e) {}
+      res.json({ ok: true, to: to });
+    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 200) }); }
+  });
+
   // Sent-mail log: newest first, cap 100.
   app.get("/api/mrtv/email/log", authRequired, async (req, res) => {
     try {
