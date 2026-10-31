@@ -122,17 +122,10 @@ const LOGIN_TEMPLATE = [
   "Server URL (every TV): http://line.watchmrtv.com",
   "",
   "SETUP (about 5 minutes, step-by-step):",
-  "https://mrtv-tv.netlify.app/guide.html",
+  "https://watchmrtv.com/app/",
   "",
-  "Quick version: install IPTV Smarters on your TV/device, choose \u201cLogin with Xtream Codes API\u201d (not the M3U playlist option), and type your username, password, and the server URL exactly as shown above. Use one login per TV \u2014 one login plays on one screen at a time.",
+  "Quick version: install our free MR TV app on your TV/device \u2014 get it at watchmrtv.com/app (on Samsung, LG, iPhone or newer Vega-OS Firesticks, use IPTV Smarters instead), choose \u201cLogin with Xtream Codes API\u201d (not the M3U playlist option), and type your username, password, and the server URL exactly as shown above. Use one login per TV \u2014 one login plays on one screen at a time.",
   "",
-  "--- ONLY IF THEY BOUGHT THE TIVIMATE BUNDLE, ADD THIS BLOCK ---",
-  "TIVIMATE BUNDLE:",
-  "TiviMate account email: [THEIR EMAIL]",
-  "TiviMate password: [PASSWORD YOU SET]",
-  "Premium: LIFETIME \u2014 already paid by us, it never renews.",
-  "In the setup guide, look for the purple \u201cTiviMate Bundle\u201d box near the top \u2014 it walks you through signing in and adding your TV login. In TiviMate, use Add playlist \u2192 Xtream Codes (not the M3U playlist option). The TiviMate account covers up to 5 devices, and you can change its password anytime in the free TiviMate Companion app.",
-  "---",
   "",
   "Stuck anywhere? WhatsApp us at (606) 657-1545 between 9am and 9pm EST and we\u2019ll walk you through it. Just tell us your order code: [MR-####].",
   "",
@@ -158,15 +151,6 @@ function fillLoginEmail(tpl, o) {
     /TV 1 \u2014 \[e\.g\. Living Room\]\nUsername: \[USERNAME\]\nPassword: \[PASSWORD\]\n\nTV 2 \u2014 \[e\.g\. Bedroom\]\nUsername: \[USERNAME\]\nPassword: \[PASSWORD\]/,
     blocks);
   s = s.split("http://line.watchmrtv.com").join(o.serverUrl);
-  const tivRe = /--- ONLY IF THEY BOUGHT THE TIVIMATE BUNDLE, ADD THIS BLOCK ---\n([\s\S]*?)\n---/;
-  if (o.tivimateEmail) {
-    s = s.replace(tivRe, function (mt, inner) {
-      return inner.split("[THEIR EMAIL]").join(o.tivimateEmail)
-        .split("[PASSWORD YOU SET]").join("set by Ryan \u2014 he\u2019ll text it to you");
-    });
-  } else {
-    s = s.replace(tivRe, "");
-  }
   s = s.split("[MR-####]").join(o.orderCode);
   return { subject: subject, text: s.replace(/\n{3,}/g, "\n\n").trim() + "\n" };
 }
