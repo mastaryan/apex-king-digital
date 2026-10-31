@@ -136,6 +136,8 @@ const LOGIN_TEMPLATE = [
   "",
   "Stuck anywhere? WhatsApp us at (606) 657-1545 between 9am and 9pm EST and we\u2019ll walk you through it. Just tell us your order code: [MR-####].",
   "",
+  "Heads up: mail from our new address sometimes lands in spam or promotions at first \u2014 if a renewal reminder goes missing, check there.",
+  "",
   "Thanks for joining M.R. TV \u2014 enjoy!",
   "\u2014 Ryan, M.R. TV",
   "",
@@ -305,7 +307,7 @@ function mountMrtvProvision(app, authRequired) {
       let emailSent = false, emailError = null;
       const firstName = String(c.name || "").split(" ")[0] || "there";
       const endIso = c.end_date ? c.end_date.toISOString().slice(0, 10) : "";
-      const orderCode = "MR-" + String(c.id).slice(0, 8).toUpperCase();
+      const orderCode = c.order_code || ("MR-" + String(c.id).slice(0, 8).toUpperCase());
       const tvWord = tvs === 1 ? "1 TV" : tvs + " TVs";
       const planDesc = tvWord + " — " + (c.renewal_amount_cents != null
         ? "$" + (c.renewal_amount_cents / 100).toFixed(2).replace(/\.00$/, "") + "/" + (c.plan === "monthly" ? "month" : "year")
@@ -433,7 +435,7 @@ function mountMrtvProvision(app, authRequired) {
             expiry: fmtLongDate(addDaysISO(nyToday(), 1)),
             tvLines: [{ username: username, password: password }],
             serverUrl: lineServer(), tivimateEmail: null,
-            orderCode: "MR-" + String(c.id).slice(0, 8).toUpperCase(),
+            orderCode: c.order_code || ("MR-" + String(c.id).slice(0, 8).toUpperCase()),
           });
           const ml = mailer();
           if (!ml) { emailError = "SMTP not configured on server"; }

@@ -523,7 +523,7 @@ function mountHome(app, authRequired) {
       if (needPg(req, res)) return;
       const today = nyToday();
       const { rows } = await getPool().query(
-        "SELECT id, name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, tivimate_bundle, lines, provisioned_at, needs_manual, created_at FROM mrtv_customers ORDER BY end_date ASC");
+        "SELECT id, name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, tivimate_bundle, lines, provisioned_at, needs_manual, created_at, order_code FROM mrtv_customers ORDER BY end_date ASC");
       res.json({
         customers: rows.map((r) => ({
           id: r.id, name: r.name, email: r.email, cell: r.cell, plan: r.plan,
@@ -536,6 +536,7 @@ function mountHome(app, authRequired) {
           lines: Array.isArray(r.lines) ? r.lines : [],
           provisionedAt: r.provisioned_at ? r.provisioned_at.toISOString() : null,
           needsManual: r.needs_manual || "",
+          orderCode: r.order_code || null,
         })),
         invoiceRouteOpen: true,
         note: "Invoice route is still open: through the TV provider, or through Apex invoicing? Not decided yet.",
@@ -563,6 +564,8 @@ function mountHome(app, authRequired) {
       const { rows } = await getPool().query(
         "INSERT INTO mrtv_customers (name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, tivimate_bundle) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id, start_date, end_date",
         [name, email || null, cell || null, plan, start, end, cleanStr(b.notes, 1000) || "", amt, tvs, pkg, adult, tiv]);
+      const newCode = "MR-" + String(rows[0].id).slice(0, 8).toUpperCase();
+      await getPool().query("UPDATE mrtv_customers SET order_code = $1 WHERE id = $2", [newCode, rows[0].id]);
       res.json({
         ok: true, id: rows[0].id,
         startDate: rows[0].start_date.toISOString().slice(0, 10),
