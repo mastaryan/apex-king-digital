@@ -664,18 +664,22 @@ function mountHome(app, authRequired) {
   // Fires 5 days before a monthly renewal, 15 days before a yearly one.
   // One email per (customer, end_date) cycle — deduped via
   // renewal_email_sent_for, so re-runs are safe. Sends from the dashboard's
-  // SMTP as M.R. TV with Reply-To tv@ (no tv@ SMTP credential on hand).
+  // SMTP as M.R. TV with Reply-To tv@watchmrtv.com. Auth prefers the TV
+  // mailbox credential (TV_SMTP_USER/TV_SMTP_PASS), falling back to the
+  // shared SMTP_* credential.
   // The email carries the renewal amount + Cash App link; Ryan marks paid
   // in the tracker when the money lands, then hits "Renewal paid".
   const MRTV_CASHAPP = "https://cash.app/$ApexKingDigital";
   function mrtvMailer() {
-    if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env["SMTP_" + "PASS"]) return null;
+    const user = process.env.TV_SMTP_USER || process.env.SMTP_USER;
+    const pass = process.env.TV_SMTP_PASS || process.env["SMTP_" + "PASS"];
+    if (!process.env.SMTP_HOST || !user || !pass) return null;
     const nodemailer = require("nodemailer");
     return nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port: Number(process.env.SMTP_PORT || 465),
       secure: Number(process.env.SMTP_PORT || 465) === 465,
-      auth: { user: process.env.SMTP_USER, pass: process.env["SMTP_" + "PASS"] },
+      auth: { user: user, pass: pass },
     });
   }
   function fmtLongDate(iso) {
@@ -744,8 +748,8 @@ function mountHome(app, authRequired) {
           "Thanks,\nRyan — M.R. TV";
         try {
           const info = await mailer.sendMail({
-            from: "M.R. TV <hello@apexkingdigital.com>",
-            replyTo: "tv@apexkingdigital.com",
+            from: "M.R. TV <tv@watchmrtv.com>",
+            replyTo: "tv@watchmrtv.com",
             to: r.email,
             subject: "Your M.R. TV renews in " + dl + " days",
             text: text,
@@ -791,8 +795,8 @@ function mountHome(app, authRequired) {
           "Thanks,\nRyan — M.R. TV";
         try {
           const info = await mailer.sendMail({
-            from: "M.R. TV <hello@apexkingdigital.com>",
-            replyTo: "tv@apexkingdigital.com",
+            from: "M.R. TV <tv@watchmrtv.com>",
+            replyTo: "tv@watchmrtv.com",
             to: r.email,
             subject: subject,
             text: text,
