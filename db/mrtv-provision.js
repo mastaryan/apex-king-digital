@@ -152,8 +152,42 @@ function fillLoginEmail(tpl, o) {
     blocks);
   s = s.split("http://line.watchmrtv.com").join(o.serverUrl);
   s = s.split("[MR-####]").join(o.orderCode);
-  return { subject: subject, text: s.replace(/\n{3,}/g, "\n\n").trim() + "\n" };
+  return { subject: subject, text: s.replace(/\n{3,}/g, "\n\n").trim() + "\n", html: buildLoginEmailHtml(o) };
 }
+
+// Branded HTML version of the login email — dark theme matching watchmrtv.com.
+// o: { firstName, planDesc, expiry, tvLines, serverUrl, orderCode }. Returns HTML string.
+function buildLoginEmailHtml(o) {
+  const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const font = "font-family:Arial,Helvetica,sans-serif;";
+  const tvCards = o.tvLines.map((l, i) =>
+    '<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:#17191c;border:1px solid #2c3036;border-radius:10px;margin:0 0 12px;">' +
+    '<tr><td style="padding:16px 18px;">' +
+    '<div style="' + font + 'font-size:13px;font-weight:bold;color:#c9ced6;letter-spacing:1px;margin-bottom:10px;">TV ' + (i + 1) + '</div>' +
+    '<div style="' + font + 'font-size:12px;color:#8a919c;margin-bottom:4px;">Username</div>' +
+    '<div style="font-family:monospace,monospace;font-size:16px;color:#f3f5f8;background:#0d0e10;border:1px solid #2c3036;border-radius:6px;padding:10px 12px;margin-bottom:12px;word-break:break-all;">' + esc(l.username) + '</div>' +
+    '<div style="' + font + 'font-size:12px;color:#8a919c;margin-bottom:4px;">Password</div>' +
+    '<div style="font-family:monospace,monospace;font-size:16px;color:#f3f5f8;background:#0d0e10;border:1px solid #2c3036;border-radius:6px;padding:10px 12px;word-break:break-all;">' + esc(l.password) + '</div>' +
+    '</td></tr></table>').join("");
+  return '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>' +
+  '<body style="margin:0;padding:0;background:#0d0e10;">' +
+  '<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:#0d0e10;"><tr><td align="center" style="padding:36px 16px;">' +
+  '<table width="600" cellpadding="0" cellspacing="0" role="presentation" style="max-width:600px;width:100%;">' +
+  '<tr><td align="center" style="padding:0 0 28px;"><img src="https://watchmrtv.com/logo.png" width="110" alt="M.R. TV" style="display:block;width:110px;max-width:110px;height:auto;"></td></tr>' +
+  '<tr><td style="' + font + 'color:#f3f5f8;font-size:20px;font-weight:bold;padding:0 0 8px;">Hi ' + esc(o.firstName) + ' \u2014 you\u2019re all set!</td></tr>' +
+  '<tr><td style="' + font + 'color:#c9ced6;font-size:15px;padding:0 0 20px;">Here are your M.R. TV logins.</td></tr>' +
+  '<tr><td><table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:#17191c;border:1px solid #2c3036;border-radius:10px;margin:0 0 20px;"><tr><td style="padding:16px 18px;' + font + 'color:#f3f5f8;font-size:15px;"><strong>Your plan:</strong> ' + esc(o.planDesc) + '<br><span style="color:#8a919c;font-size:13px;">Good through: ' + esc(o.expiry) + '</span></td></tr></table></td></tr>' +
+  '<tr><td>' + tvCards + '</td></tr>' +
+  '<tr><td><table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:#17191c;border:1px solid #2c3036;border-radius:10px;margin:0 0 20px;"><tr><td style="padding:16px 18px;' + font + '"><div style="font-size:12px;color:#8a919c;margin-bottom:4px;">Server URL (every TV)</div><div style="font-family:monospace,monospace;font-size:15px;color:#f3f5f8;word-break:break-all;">' + esc(o.serverUrl) + '</div></td></tr></table></td></tr>' +
+  '<tr><td align="center" style="padding:4px 0 20px;"><a href="https://watchmrtv.com/app/" style="display:inline-block;' + font + 'font-size:16px;font-weight:bold;color:#0d0e10;background:#c9ced6;border-radius:8px;padding:14px 32px;text-decoration:none;">Open Setup Guide</a></td></tr>' +
+  '<tr><td style="' + font + 'color:#c9ced6;font-size:14px;line-height:1.6;padding:0 0 16px;"><strong style="color:#f3f5f8;">Quick version:</strong> install our free MR TV app on your TV/device \u2014 get it at <a href="https://watchmrtv.com/app/" style="color:#c9ced6;">watchmrtv.com/app</a> (on Samsung, LG, iPhone or newer Vega-OS Firesticks, use IPTV Smarters instead), choose \u201cLogin with Xtream Codes API\u201d (not the M3U playlist option), and type your username, password, and the server URL exactly as shown above. Use one login per TV \u2014 one login plays on one screen at a time.</td></tr>' +
+  '<tr><td style="' + font + 'color:#c9ced6;font-size:14px;line-height:1.6;padding:0 0 16px;">Stuck anywhere? WhatsApp us at <strong style="color:#f3f5f8;">(606) 657-1545</strong> between 9am and 9pm EST and we\u2019ll walk you through it. Just tell us your order code: <strong style="color:#f3f5f8;font-family:monospace,monospace;">' + esc(o.orderCode) + '</strong>.</td></tr>' +
+  '<tr><td style="' + font + 'color:#8a919c;font-size:13px;line-height:1.6;padding:0 0 20px;border-top:1px solid #2c3036;padding-top:16px;">Heads up: mail from our new address sometimes lands in spam or promotions at first \u2014 if a renewal reminder goes missing, check there.</td></tr>' +
+  '<tr><td style="' + font + 'color:#f3f5f8;font-size:15px;padding:0 0 4px;">Thanks for joining M.R. TV \u2014 enjoy!</td></tr>' +
+  '<tr><td style="' + font + 'color:#8a919c;font-size:14px;">\u2014 Ryan, M.R. TV</td></tr>' +
+  '</table></td></tr></table></body></html>';
+}
+
 
 function mailer() {
   // tv@ mailbox credential (TV_SMTP_USER/TV_SMTP_PASS) is preferred for the
@@ -241,7 +275,7 @@ function mountMrtvProvision(app, authRequired) {
       const ml = mailer();
       if (!ml) return res.status(500).json({ error: "SMTP not configured on server" });
       const subject = "[TEST] " + filled.subject;
-      const info = await ml.sendMail({ from: loginFrom(), replyTo: "tv@watchmrtv.com", to: to, subject: subject, text: filled.text });
+      const info = await ml.sendMail({ from: loginFrom(), replyTo: "tv@watchmrtv.com", to: to, subject: subject, text: filled.text, html: filled.html });
       try { await logEmail({ kind: "test", customer_id: null, to_email: to, subject: subject, message_id: info.messageId || null, smtp_response: String(info.response || "").slice(0, 500), ok: true, error: null }); } catch (e) {}
       res.json({ ok: true, to: to });
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 200) }); }
@@ -339,7 +373,7 @@ function mountMrtvProvision(app, authRequired) {
             const info = await ml.sendMail({
               from: loginFrom(),
               replyTo: "tv@watchmrtv.com",
-              to: c.email, subject: filled.subject, text: filled.text,
+              to: c.email, subject: filled.subject, text: filled.text, html: filled.html,
             });
             emailSent = true;
             await logEmail({ kind: "provision_login", customerId: c.id, to: c.email, subject: filled.subject, info: info, ok: true });
@@ -454,7 +488,7 @@ function mountMrtvProvision(app, authRequired) {
           if (!ml) { emailError = "SMTP not configured on server"; }
           else {
             try {
-              const info = await ml.sendMail({ from: loginFrom(), replyTo: "tv@watchmrtv.com", to: c.email, subject: filled.subject, text: filled.text });
+              const info = await ml.sendMail({ from: loginFrom(), replyTo: "tv@watchmrtv.com", to: c.email, subject: filled.subject, text: filled.text, html: filled.html });
               emailSent = true;
               await logEmail({ kind: "demo_login", customerId: c.id, to: c.email, subject: filled.subject, info: info, ok: true });
             } catch (e) {
