@@ -127,7 +127,8 @@ const LOGIN_TEMPLATE = [
   "Quick version: install our free MR TV app on your TV/device \u2014 get it at watchmrtv.com/app (on Samsung, LG, iPhone or newer Vega-OS Firesticks, use IPTV Smarters instead), choose \u201cLogin with Xtream Codes API\u201d (not the M3U playlist option), and type your username, password, and the server URL exactly as shown above. Use one login per TV \u2014 one login plays on one screen at a time.",
   "",
   "",
-  "Stuck anywhere? WhatsApp us at (606) 657-1545 between 9am and 9pm EST and we\u2019ll walk you through it. Just tell us your order code: [MR-####].",
+  "Stuck anywhere? Message us on WhatsApp between 9am and 9pm EST and we\u2019ll walk you through it:",
+  "[WHATSAPP_URL]",
   "",
   "Heads up: mail from our new address sometimes lands in spam or promotions at first \u2014 if a renewal reminder goes missing, check there.",
   "",
@@ -152,6 +153,8 @@ function fillLoginEmail(tpl, o) {
     blocks);
   s = s.split("http://line.watchmrtv.com").join(o.serverUrl);
   s = s.split("[MR-####]").join(o.orderCode);
+  const waUrl = "https://wa.me/16066571545?text=" + encodeURIComponent("Hi MR TV \u2014 I need help. My order code is " + o.orderCode);
+  s = s.split("[WHATSAPP_URL]").join(waUrl);
   return { subject: subject, text: s.replace(/\n{3,}/g, "\n\n").trim() + "\n", html: buildLoginEmailHtml(o) };
 }
 
@@ -160,6 +163,7 @@ function fillLoginEmail(tpl, o) {
 function buildLoginEmailHtml(o) {
   const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   const font = "font-family:Arial,Helvetica,sans-serif;";
+  const waUrl = "https://wa.me/16066571545?text=" + encodeURIComponent("Hi MR TV \u2014 I need help. My order code is " + o.orderCode);
   const tvCards = o.tvLines.map((l, i) =>
     '<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:#17191c;border:1px solid #2c3036;border-radius:10px;margin:0 0 12px;">' +
     '<tr><td style="padding:16px 18px;">' +
@@ -181,7 +185,8 @@ function buildLoginEmailHtml(o) {
   '<tr><td><table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:#17191c;border:1px solid #2c3036;border-radius:10px;margin:0 0 20px;"><tr><td style="padding:16px 18px;' + font + '"><div style="font-size:12px;color:#8a919c;margin-bottom:4px;">Server URL (every TV)</div><div style="font-family:monospace,monospace;font-size:15px;color:#f3f5f8;word-break:break-all;">' + esc(o.serverUrl) + '</div></td></tr></table></td></tr>' +
   '<tr><td align="center" style="padding:4px 0 20px;"><a href="https://watchmrtv.com/app/" style="display:inline-block;' + font + 'font-size:16px;font-weight:bold;color:#0d0e10;background:#c9ced6;border-radius:8px;padding:14px 32px;text-decoration:none;">Open Setup Guide</a></td></tr>' +
   '<tr><td style="' + font + 'color:#c9ced6;font-size:14px;line-height:1.6;padding:0 0 16px;"><strong style="color:#f3f5f8;">Quick version:</strong> install our free MR TV app on your TV/device \u2014 get it at <a href="https://watchmrtv.com/app/" style="color:#c9ced6;">watchmrtv.com/app</a> (on Samsung, LG, iPhone or newer Vega-OS Firesticks, use IPTV Smarters instead), choose \u201cLogin with Xtream Codes API\u201d (not the M3U playlist option), and type your username, password, and the server URL exactly as shown above. Use one login per TV \u2014 one login plays on one screen at a time.</td></tr>' +
-  '<tr><td style="' + font + 'color:#c9ced6;font-size:14px;line-height:1.6;padding:0 0 16px;">Stuck anywhere? WhatsApp us at <strong style="color:#f3f5f8;">(606) 657-1545</strong> between 9am and 9pm EST and we\u2019ll walk you through it. Just tell us your order code: <strong style="color:#f3f5f8;font-family:monospace,monospace;">' + esc(o.orderCode) + '</strong>.</td></tr>' +
+  '<tr><td align="center" style="padding:0 0 8px;"><a href="' + waUrl + '" style="display:inline-block;' + font + 'font-size:15px;font-weight:bold;color:#0d0e10;background:#c9ced6;border-radius:8px;padding:13px 30px;text-decoration:none;">Message us on WhatsApp</a></td></tr>' +
+  '<tr><td align="center" style="' + font + 'color:#8a919c;font-size:13px;padding:0 0 16px;">between 9am and 9pm EST \u2014 we\u2019ll walk you through it.</td></tr>' +
   '<tr><td style="' + font + 'color:#8a919c;font-size:13px;line-height:1.6;padding:0 0 20px;border-top:1px solid #2c3036;padding-top:16px;">Heads up: mail from our new address sometimes lands in spam or promotions at first \u2014 if a renewal reminder goes missing, check there.</td></tr>' +
   '<tr><td style="' + font + 'color:#f3f5f8;font-size:15px;padding:0 0 4px;">Thanks for joining M.R. TV \u2014 enjoy!</td></tr>' +
   '<tr><td style="' + font + 'color:#8a919c;font-size:14px;">\u2014 Ryan, M.R. TV</td></tr>' +
