@@ -361,6 +361,9 @@ CREATE TABLE IF NOT EXISTS mrtv_customers (
 ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS renewal_amount_cents INTEGER;
 ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS renewal_email_sent_for DATE;
 ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS winback_sent_for DATE;
+-- Multi-touch renewal reminders (Ryan 2026-11-01): yearly gets 15-day + 3-day
+-- touches. Comma-separated days already sent for the current end_date cycle.
+ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS renewal_touches_sent TEXT NOT NULL DEFAULT '';
 ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS order_code TEXT;
 -- One-click provisioning (2026-10-29): per-TV panel credentials live in
 -- `lines` (JSONB array: {tv, type, sub, pack, username, password, user_id,

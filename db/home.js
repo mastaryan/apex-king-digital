@@ -809,7 +809,7 @@ function mountHome(app, authRequired) {
       if (needPg(req, res)) return;
       const today = nyToday();
       const { rows } = await getPool().query(
-        "SELECT id, name, email, plan, end_date, renewal_amount_cents, renewal_email_sent_for " +
+        "SELECT id, name, email, plan, end_date, renewal_amount_cents, renewal_email_sent_for, renewal_touches_sent " +
         "FROM mrtv_customers WHERE renewal_amount_cents IS NOT NULL AND end_date IS NOT NULL");
       const mailer = mrtvMailer();
       let sent = 0, skipped = 0;
@@ -817,9 +817,18 @@ function mountHome(app, authRequired) {
       for (const r of rows) {
         const endIso = r.end_date.toISOString().slice(0, 10);
         const dl = daysBetween(today, endIso);
-        const due = (r.plan === "monthly" && dl === 5) || (r.plan === "yearly" && dl === 15);
-        if (!due) continue;
-        if (r.renewal_email_sent_for && r.renewal_email_sent_for.toISOString().slice(0, 10) === endIso) { skipped++; continue; }
+        // Renewal touches (Ryan 2026-11-01): monthly = 5 days out; yearly =
+        // 15 days + 3 days out. Each touch sends once per end_date cycle —
+        // touches only count when renewal_email_sent_for matches the current
+        // cycle, so a renewed end_date starts fresh automatically.
+        const touches = r.plan === "monthly" ? [5] : [15, 3];
+        if (touches.indexOf(dl) < 0) continue;
+        let sentTouches = [];
+        if (r.renewal_email_sent_for && r.renewal_email_sent_for.toISOString().slice(0, 10) === endIso) {
+          sentTouches = String(r.renewal_touches_sent || "").split(",").filter(Boolean);
+          if (!sentTouches.length) sentTouches = [r.plan === "monthly" ? "5" : "15"]; // backfill: old single-touch tracking
+        }
+        if (sentTouches.indexOf(String(dl)) >= 0) { skipped++; continue; }
         if (!r.email) { errors.push(r.name + ": no email on file"); continue; }
         if (!mailer) { errors.push("SMTP not configured on server"); break; }
         const first = String(r.name || "").split(" ")[0] || "there";
@@ -839,7 +848,8 @@ function mountHome(app, authRequired) {
             subject: "Your M.R. TV renews in " + dl + " days",
             text: text,
           });
-          await getPool().query("UPDATE mrtv_customers SET renewal_email_sent_for = $1 WHERE id = $2", [endIso, r.id]);
+          await getPool().query("UPDATE mrtv_customers SET renewal_email_sent_for = $1, renewal_touches_sent = $2 WHERE id = $3",
+            [endIso, sentTouches.concat([String(dl)]).join(","), r.id]);
           try { await require("./mrtv-provision").logEmail({ kind: "renewal", customerId: r.id, to: r.email, subject: "Your M.R. TV renews in " + dl + " days", info: info, ok: true }); } catch (le) { console.error("email log", le.message); }
           sent++;
         } catch (e) {
