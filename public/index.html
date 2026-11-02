@@ -42,6 +42,13 @@ h1{font-size:30px;margin-bottom:6px}
 .btn:hover{border-color:var(--gold)}
 .btn.danger:hover{border-color:var(--red);color:var(--red)}
 .btn.primary{background:linear-gradient(135deg,var(--gold),#9a6c1d);border:none;color:#fff}
+.linklike{background:none;border:none;padding:0;color:var(--silver);cursor:pointer;font-family:inherit;text-align:left}
+.linklike:hover{color:var(--gold);text-decoration:underline}
+.tv-detail-grid{display:grid;grid-template-columns:130px 1fr;gap:6px 12px;font-size:14px;margin:10px 0}
+.tv-detail-grid dt{color:var(--dim)}
+.tv-detail-grid dd{margin:0}
+.tv-detail-sec{margin-top:16px}
+.tv-detail-sec h3{font-size:14px;color:var(--gold);margin:0 0 8px;text-transform:uppercase;letter-spacing:.06em}
 .add{border:2px dashed #35353d;border-radius:14px;display:flex;align-items:center;justify-content:center;gap:10px;padding:18px;color:var(--dim);font-size:15px;cursor:pointer;background:transparent;width:100%;font-family:inherit;margin-top:14px}
 .add:hover{border-color:var(--gold);color:var(--silver)}
 .add .plus{font-size:24px;color:var(--gold)}
@@ -504,6 +511,16 @@ pre.report{white-space:pre-wrap;word-break:break-word;background:#0e0e11;border:
     <div class="mactions">
       <button class="btn" id="cust-cancel" type="button">Cancel</button>
       <button class="btn primary" id="cust-save" type="button">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="mrtv-detail-modal">
+  <div class="card" style="max-width:640px;width:100%">
+    <h2 id="mrtv-detail-title" style="margin-top:0">Customer</h2>
+    <div id="mrtv-detail-body"><p class="note">Loading…</p></div>
+    <div class="mactions">
+      <button class="btn" id="mrtv-detail-close" type="button">Close</button>
     </div>
   </div>
 </div>
@@ -1787,7 +1804,7 @@ function tvCustomerRow(c, dormant){
       // live demo showed no channels). The /demo API route is also guarded
       // server-side; re-enable both if demos come back.
       var headline = dl === null ? '—' : (dormant ? 'dormant ' + (-dl) + ' days' : dl + ' days left');
-      return '<div class="lane-row"><div class="m"><b>' + esc(c.name) + '</b>' + (c.orderCode ? ' <code style="font-size:12px;color:var(--dim)">' + esc(c.orderCode) + '</code>' : '') + ' · ' + esc(c.plan) + ' · ' + esc(c.email || 'no email') + (c.cell ? ' · ' + esc(c.cell) : '') + '<br><span style="color:var(--dim);font-size:13px">' + esc(c.startDate || '') + ' → ' + esc(c.endDate || '') + ' · ' + esc(amt) + ' · ' + esc(String(c.tvCount || 1)) + ' TV' + ((c.tvCount || 1) === 1 ? '' : 's') + ' · ' + esc(c.package === 'usa' ? 'USA only' : (c.package === 'all' ? 'All countries' : 'Select countries')) + (c.adultOk ? ' + adults' : '') + (c.tivimateBundle ? ' · TiviMate' : '') + '</span>' + prov + btns + '</div>' +
+      return '<div class="lane-row"><div class="m"><button class="linklike" data-tv-detail="' + c.id + '" title="Open customer details" style="font-weight:700;font-size:15px">' + esc(c.name) + '</button>' + (c.orderCode ? ' <code style="font-size:12px;color:var(--dim)">' + esc(c.orderCode) + '</code>' : '') + ' · ' + esc(c.plan) + ' · ' + esc(c.email || 'no email') + (c.cell ? ' · ' + esc(c.cell) : '') + '<br><span style="color:var(--dim);font-size:13px">' + esc(c.startDate || '') + ' → ' + esc(c.endDate || '') + ' · ' + esc(amt) + ' · ' + esc(String(c.tvCount || 1)) + ' TV' + ((c.tvCount || 1) === 1 ? '' : 's') + ' · ' + esc(c.package === 'usa' ? 'USA only' : (c.package === 'all' ? 'All countries' : 'Select countries')) + (c.adultOk ? ' + adults' : '') + (c.tivimateBundle ? ' · TiviMate' : '') + '</span>' + prov + btns + '</div>' +
         '<span class="v ' + cls + '" style="font-weight:700;font-size:17px">' + headline + '</span></div>';
 }
     var active = cs.filter(function(c){ return c.daysLeft === null || c.daysLeft >= -7; });
@@ -1834,6 +1851,8 @@ document.getElementById('tv-add').addEventListener('click', function(){
     });
 });
 function mrtvListClick(ev){
+  var det = ev.target.getAttribute && ev.target.getAttribute('data-tv-detail');
+  if (det) { openMrtvDetail(det); return; }
   var paid = ev.target.getAttribute && ev.target.getAttribute('data-tv-paid');
   var amtB = ev.target.getAttribute && ev.target.getAttribute('data-tv-amt');
   var provB = ev.target.getAttribute && ev.target.getAttribute('data-tv-provision');
@@ -1897,6 +1916,103 @@ function mrtvListClick(ev){
 }
 document.getElementById('mrtv-list').addEventListener('click', mrtvListClick);
 document.getElementById('mrtv-dormant').addEventListener('click', mrtvListClick);
+
+// M.R. TV customer detail card (Ryan 2026-11-01): click a customer name for
+// contact + plan + logins, payment history (ledger), and email history.
+function tvMoney(cents){
+  if (cents === null || cents === undefined) return '—';
+  return '$' + (cents / 100).toFixed(2).replace(/\.00$/, '');
+}
+function mrtvEmailKind(k){
+  return { provision_login: 'Login email', renewal: 'Renewal reminder', winback: 'Win-back nudge', test: 'Test send' }[k] || esc(k || 'email');
+}
+var mrtvDetailId = null;
+function openMrtvDetail(id){
+  mrtvDetailId = id;
+  var modal = document.getElementById('mrtv-detail-modal');
+  document.getElementById('mrtv-detail-title').textContent = 'Customer';
+  document.getElementById('mrtv-detail-body').innerHTML = '<p class="note">Loading…</p>';
+  modal.classList.add('show');
+  api('/api/mrtv/customers/' + encodeURIComponent(id) + '/detail').then(function(r){
+    if (!r.ok) {
+      document.getElementById('mrtv-detail-body').innerHTML = '<p class="note">Failed to load: ' + esc((r.j && r.j.error) || 'unknown error') + '</p>';
+      return;
+    }
+    renderMrtvDetail(r.j);
+  });
+}
+function renderMrtvDetail(d){
+  var c = d.customer;
+  document.getElementById('mrtv-detail-title').textContent = c.name + (c.orderCode ? ' · ' + c.orderCode : '');
+  var pkg = c.package === 'usa' ? 'USA only' : (c.package === 'all' ? 'All countries' : 'Select countries');
+  var h = '<dl class="tv-detail-grid">' +
+    '<dt>Email</dt><dd>' + esc(c.email || '—') + '</dd>' +
+    '<dt>Cell</dt><dd>' + esc(c.cell || '—') + '</dd>' +
+    '<dt>Signed up</dt><dd>' + esc(c.startDate || '—') + '</dd>' +
+    '<dt>Expires</dt><dd>' + esc(c.endDate || '—') + (c.daysLeft !== null && c.daysLeft !== undefined ? ' (' + (c.daysLeft < 0 ? 'expired ' + (-c.daysLeft) + 'd ago' : c.daysLeft + ' days left') + ')' : '') + '</dd>' +
+    '<dt>Plan</dt><dd>' + esc(c.plan) + ' · ' + esc(String(c.tvCount || 1)) + ' TV' + ((c.tvCount || 1) === 1 ? '' : 's') + ' · ' + esc(pkg) + (c.adultOk ? ' + adults' : '') + '</dd>' +
+    '<dt>Renews for</dt><dd>' + tvMoney(c.renewalAmountCents) + (c.endDate ? ' on ' + esc(c.endDate) : '') + '</dd>' +
+    (c.notes ? '<dt>Notes</dt><dd>' + esc(c.notes) + '</dd>' : '') +
+    (c.needsManual ? '<dt>Attention</dt><dd style="color:#f0a35e">⚠️ ' + esc(c.needsManual) + '</dd>' : '') +
+    '</dl>';
+  // Logins
+  h += '<div class="tv-detail-sec"><h3>Logins <button class="btn" id="mrtv-resend-logins" type="button" style="padding:3px 12px;font-size:12px;margin-left:8px">Resend login email</button></h3>';
+  var lines = c.lines || [];
+  if (!lines.length) h += '<p class="note">' + (c.provisionedAt ? 'Provisioned, no lines on file.' : 'Not provisioned yet.') + '</p>';
+  else h += '<dl class="tv-detail-grid">' + lines.map(function(l){
+    return '<dt>TV ' + esc(String(l.tv)) + '</dt><dd><code>' + esc(l.username) + '</code> / <code>' + esc(l.password) + '</code></dd>';
+  }).join('') + '</dl>';
+  h += '</div>';
+  // Payment history
+  h += '<div class="tv-detail-sec"><h3>Payment history</h3>';
+  var orders = d.orders || [];
+  if (!orders.length) h += '<p class="note">No payments recorded.</p>';
+  else {
+    var total = 0;
+    h += '<div>' + orders.map(function(o){
+      total += (o.grossC || 0);
+      return '<div class="lane-row" style="padding:8px 0"><div class="m"><b>' + tvMoney(o.grossC) + '</b>' +
+        ' <span style="color:var(--dim);font-size:13px">' + esc(o.date || o.at || '') +
+        (o.plan ? ' · ' + esc(o.plan) : '') +
+        (o.credits ? ' · ' + esc(String(o.credits)) + ' credits' : '') +
+        (o.feeC ? ' · fee ' + tvMoney(o.feeC) : '') +
+        (o.note ? '<br>' + esc(o.note) : '') + '</span></div></div>';
+    }).join('') + '</div><p class="note">Total paid: <b>' + tvMoney(total) + '</b></p>';
+  }
+  h += '</div>';
+  // Email history
+  h += '<div class="tv-detail-sec"><h3>Emails sent</h3>';
+  var emails = d.emails || [];
+  if (!emails.length) h += '<p class="note">No emails sent yet.</p>';
+  else h += '<div>' + emails.map(function(e){
+    return '<div class="lane-row" style="padding:8px 0"><div class="m">' + mrtvEmailKind(e.kind) +
+      ' <span style="color:var(--dim);font-size:13px">· ' + esc(e.subject || '') + '<br>' + esc(e.at || '') + ' → ' + esc(e.to || '') +
+      (e.ok ? '' : ' · <span style="color:var(--red)">FAILED: ' + esc(e.error || 'unknown') + '</span>') + '</span></div></div>';
+  }).join('') + '</div>';
+  h += '</div>';
+  document.getElementById('mrtv-detail-body').innerHTML = h;
+  var rb = document.getElementById('mrtv-resend-logins');
+  if (rb) rb.addEventListener('click', function(){
+    if (!mrtvDetailId) return;
+    if (!confirm('Resend the login email (username/password) to ' + esc(c.email || 'this customer') + '?')) return;
+    rb.disabled = true; rb.textContent = 'Sending…';
+    api('/api/mrtv/customers/' + encodeURIComponent(mrtvDetailId) + '/resend-logins', { method: 'POST' }).then(function(r){
+      rb.disabled = false; rb.textContent = 'Resend login email';
+      if (!r.ok) { alert('Failed: ' + ((r.j && r.j.error) || 'unknown error')); return; }
+      alert('Login email re-sent to ' + r.j.to + '.');
+      openMrtvDetail(mrtvDetailId); // refresh the email history
+    });
+  });
+}
+document.getElementById('mrtv-detail-close').addEventListener('click', function(){
+  document.getElementById('mrtv-detail-modal').classList.remove('show');
+});
+document.getElementById('mrtv-detail-modal').addEventListener('click', function(ev){
+  if (ev.target === this) this.classList.remove('show');
+});
+document.addEventListener('keydown', function(ev){
+  if (ev.key === 'Escape') document.getElementById('mrtv-detail-modal').classList.remove('show');
+});
 
 function load(){
   api('/api/sites').then(function(r){

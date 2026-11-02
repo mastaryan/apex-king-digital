@@ -518,6 +518,61 @@ function mountHome(app, authRequired) {
   });
 
   // ---------- M.R. TV ----------
+  // Customer detail (Ryan 2026-11-01): one payload for the click-to-open
+  // customer card — contact + plan + lines, payment history (ledger orders
+  // matched by customer_id, falling back to the name string older rows
+  // carry), and email history (login / renewal / win-back sends).
+  app.get("/api/mrtv/customers/:id/detail", authRequired, async (req, res) => {
+    try {
+      if (needPg(req, res)) return;
+      const id = req.params.id;
+      const c = await getPool().query(
+        "SELECT id, name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, tivimate_bundle, lines, provisioned_at, needs_manual, created_at, order_code FROM mrtv_customers WHERE id = $1",
+        [id]);
+      if (!c.rows.length) return res.status(404).json({ error: "customer not found" });
+      const r = c.rows[0];
+      const today = nyToday();
+      const customer = {
+        id: r.id, name: r.name, email: r.email, cell: r.cell, plan: r.plan,
+        startDate: r.start_date ? r.start_date.toISOString().slice(0, 10) : null,
+        endDate: r.end_date ? r.end_date.toISOString().slice(0, 10) : null,
+        daysLeft: mrtvDaysLeft(r, today),
+        notes: r.notes,
+        renewalAmountCents: r.renewal_amount_cents,
+        tvCount: r.tv_count, package: r.package, adultOk: !!r.adult_ok, tivimateBundle: !!r.tivimate_bundle,
+        lines: Array.isArray(r.lines) ? r.lines : [],
+        provisionedAt: r.provisioned_at ? r.provisioned_at.toISOString() : null,
+        needsManual: r.needs_manual || "",
+        orderCode: r.order_code || null,
+      };
+      const ord = await getPool().query(
+        "SELECT id, payload, note, created_at FROM mrtv_ledger_events WHERE kind = 'order' AND (payload->>'customer_id' = $1 OR (payload->>'customer_id' IS NULL AND payload->>'customer' = $2)) ORDER BY created_at ASC",
+        [id, r.name]);
+      const orders = ord.rows.map((o) => {
+        const p = o.payload || {};
+        return {
+          id: o.id,
+          at: o.created_at ? o.created_at.toISOString().slice(0, 10) : null,
+          date: p.date || null,
+          grossC: p.gross_c != null ? p.gross_c : null,
+          feeC: p.fee_c != null ? p.fee_c : null,
+          netC: p.net_c != null ? p.net_c : null,
+          credits: p.credits != null ? p.credits : null,
+          plan: p.plan || null,
+          note: o.note || "",
+        };
+      });
+      const em = await getPool().query(
+        "SELECT kind, to_email, subject, ok, error, created_at FROM mrtv_email_log WHERE customer_id = $1 ORDER BY created_at DESC",
+        [id]);
+      const emails = em.rows.map((e) => ({
+        kind: e.kind, to: e.to_email, subject: e.subject, ok: !!e.ok,
+        error: e.error || null,
+        at: e.created_at ? e.created_at.toISOString().slice(0, 19).replace("T", " ") : null,
+      }));
+      res.json({ ok: true, customer: customer, orders: orders, emails: emails });
+    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
+  });
   app.get("/api/mrtv/customers", authRequired, async (req, res) => {
     try {
       if (needPg(req, res)) return;
