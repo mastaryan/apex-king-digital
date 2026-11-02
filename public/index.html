@@ -391,6 +391,7 @@ pre.report{white-space:pre-wrap;word-break:break-word;background:#0e0e11;border:
     </details>
     <div id="mrtv-list"></div>
     <div id="mrtv-dormant" style="margin-top:14px"></div>
+    <div id="mrtv-archive" style="margin-top:14px"></div>
     <details style="margin-top:14px">
       <summary style="cursor:pointer;color:var(--dim);font-size:14px">+ Add an M.R. TV customer</summary>
       <div style="margin-top:10px">
@@ -1791,24 +1792,30 @@ function tvCustomerRow(c, dormant){
       }
       var btns = '<br><button class="btn" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-paid="' + c.id + '" data-tv-name="' + esc(c.name) + '" data-tv-plan="' + esc(c.plan) + '">Renewal paid</button> ' +
         '<button class="btn" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-amt="' + c.id + '" data-tv-cur="' + (c.renewalAmountCents === null || c.renewalAmountCents === undefined ? '' : (c.renewalAmountCents / 100).toFixed(2)) + '">Edit $</button> ';
-      if (!dormant) {
-        if (!c.provisionedAt && !lines.length) {
-          btns += '<button class="btn primary" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-provision="' + c.id + '" data-tv-tvs="' + (c.tvCount || 1) + '" data-tv-name="' + esc(c.name) + '">Mark paid &amp; provision</button> ';
-        } else if (lines.length) {
-          btns += '<button class="btn" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-renewline="' + c.id + '" data-tv-name="' + esc(c.name) + '">Renew line</button>';
+      var archived = !!c.archivedAt;
+      if (archived) {
+        btns += '<button class="btn" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-restore="' + c.id + '" data-tv-name="' + esc(c.name) + '">Restore</button> ';
+      } else {
+        btns += '<button class="btn" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-archive="' + c.id + '" data-tv-name="' + esc(c.name) + '">Archive</button> ';
+        if (!dormant) {
+          if (!c.provisionedAt && !lines.length) {
+            btns += '<button class="btn primary" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-provision="' + c.id + '" data-tv-tvs="' + (c.tvCount || 1) + '" data-tv-name="' + esc(c.name) + '">Mark paid &amp; provision</button> ';
+          } else if (lines.length) {
+            btns += '<button class="btn" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-renewline="' + c.id + '" data-tv-name="' + esc(c.name) + '">Renew line</button>';
+          }
         }
-      } else if (dl !== null && dl <= -45) {
-        btns += '<button class="btn danger" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-delcust="' + c.id + '" data-tv-name="' + esc(c.name) + '">Delete</button>';
+        // Day-45 Delete removed 2026-11-01 (Ryan): archive replaces delete.
       }
       // Demo lines DISABLED 2026-10-29 (Ryan: viability in question after the
       // live demo showed no channels). The /demo API route is also guarded
       // server-side; re-enable both if demos come back.
-      var headline = dl === null ? '—' : (dormant ? 'dormant ' + (-dl) + ' days' : dl + ' days left');
-      return '<div class="lane-row"><div class="m"><button class="linklike" data-tv-detail="' + c.id + '" title="Open customer details" style="font-weight:700;font-size:15px">' + esc(c.name) + '</button>' + (c.orderCode ? ' <code style="font-size:12px;color:var(--dim)">' + esc(c.orderCode) + '</code>' : '') + ' · ' + esc(c.plan) + ' · ' + esc(c.email || 'no email') + (c.cell ? ' · ' + esc(c.cell) : '') + '<br><span style="color:var(--dim);font-size:13px">' + esc(c.startDate || '') + ' → ' + esc(c.endDate || '') + ' · ' + esc(amt) + ' · ' + esc(String(c.tvCount || 1)) + ' TV' + ((c.tvCount || 1) === 1 ? '' : 's') + ' · ' + esc(c.package === 'usa' ? 'USA only' : (c.package === 'all' ? 'All countries' : 'Select countries')) + (c.adultOk ? ' + adults' : '') + (c.tivimateBundle ? ' · TiviMate' : '') + '</span>' + prov + btns + '</div>' +
+      var headline = dl === null ? '—' : (archived ? 'archived' : (dormant ? 'dormant ' + (-dl) + ' days' : dl + ' days left'));
+      return '<div class="lane-row"><div class="m"><button class="linklike" data-tv-detail="' + c.id + '" title="Open customer details" style="font-weight:700;font-size:15px">' + esc(c.name) + '</button>' + (c.orderCode ? ' <code style="font-size:12px;color:var(--dim)">' + esc(c.orderCode) + '</code>' : '') + (archived ? ' <span class="chip">archived · ' + esc(c.archiveReason || 'manual') + '</span>' : '') + ' · ' + esc(c.plan) + ' · ' + esc(c.email || 'no email') + (c.cell ? ' · ' + esc(c.cell) : '') + '<br><span style="color:var(--dim);font-size:13px">' + esc(c.startDate || '') + ' → ' + esc(c.endDate || '') + ' · ' + esc(amt) + ' · ' + esc(String(c.tvCount || 1)) + ' TV' + ((c.tvCount || 1) === 1 ? '' : 's') + ' · ' + esc(c.package === 'usa' ? 'USA only' : (c.package === 'all' ? 'All countries' : 'Select countries')) + (c.adultOk ? ' + adults' : '') + (c.tivimateBundle ? ' · TiviMate' : '') + (archived && c.archivedAt ? ' · archived ' + esc(c.archivedAt) : '') + '</span>' + prov + btns + '</div>' +
         '<span class="v ' + cls + '" style="font-weight:700;font-size:17px">' + headline + '</span></div>';
 }
-    var active = cs.filter(function(c){ return c.daysLeft === null || c.daysLeft >= -7; });
-    var dormant = cs.filter(function(c){ return c.daysLeft !== null && c.daysLeft < -7; });
+    var active = cs.filter(function(c){ return !c.archivedAt && (c.daysLeft === null || c.daysLeft >= -7); });
+    var dormant = cs.filter(function(c){ return !c.archivedAt && c.daysLeft !== null && c.daysLeft < -7; });
+    var archived = cs.filter(function(c){ return !!c.archivedAt; });
     var box = document.getElementById('mrtv-list');
     if (!cs.length) { box.innerHTML = '<p class="note">No M.R. TV customers yet. Add one when they sign up — start is the invoice date, end is +1 year (or +1 month).</p>'; }
     else if (!active.length) { box.innerHTML = '<p class="note">No active customers right now — everyone is dormant.</p>'; }
@@ -1817,6 +1824,10 @@ function tvCustomerRow(c, dormant){
     dz.innerHTML = dormant.length ?
       '<details><summary style="cursor:pointer;color:var(--dim);font-size:14px">Dormant (' + dormant.length + ') — ended 7+ days ago, no renewal</summary><div style="margin-top:10px">' +
       dormant.map(function(c){ return tvCustomerRow(c, true); }).join('') + '</div></details>' : '';
+    var az = document.getElementById('mrtv-archive');
+    az.innerHTML = archived.length ?
+      '<details><summary style="cursor:pointer;color:var(--dim);font-size:14px">Archive (' + archived.length + ') — expired / refunded, kept for win-back</summary><div style="margin-top:10px">' +
+      archived.map(function(c){ return tvCustomerRow(c, false); }).join('') + '</div></details>' : '';
   }).catch(function(){});
 }
 // Renewal amount auto-defaults to the plan's sale price (Ryan 2026-10-30):
@@ -1853,6 +1864,26 @@ document.getElementById('tv-add').addEventListener('click', function(){
 function mrtvListClick(ev){
   var det = ev.target.getAttribute && ev.target.getAttribute('data-tv-detail');
   if (det) { openMrtvDetail(det); return; }
+  var arc = ev.target.getAttribute && ev.target.getAttribute('data-tv-archive');
+  if (arc) {
+    var reason = prompt('Archive ' + ev.target.getAttribute('data-tv-name') + ' as? (expired / refunded / manual)', 'expired');
+    if (reason === null) return;
+    reason = reason.trim().toLowerCase();
+    if (['expired', 'refunded', 'manual'].indexOf(reason) < 0) reason = 'manual';
+    api('/api/mrtv/customers/' + arc + '/archive', { method: 'POST', body: JSON.stringify({ reason: reason }) }).then(function(r){
+      if (!r.ok) { alert('Failed: ' + ((r.j && r.j.error) || 'unknown error')); return; }
+      loadMrtv();
+    });
+    return;
+  }
+  var rst = ev.target.getAttribute && ev.target.getAttribute('data-tv-restore');
+  if (rst) {
+    api('/api/mrtv/customers/' + rst + '/restore', { method: 'POST' }).then(function(r){
+      if (!r.ok) { alert('Failed: ' + ((r.j && r.j.error) || 'unknown error')); return; }
+      loadMrtv();
+    });
+    return;
+  }
   var paid = ev.target.getAttribute && ev.target.getAttribute('data-tv-paid');
   var amtB = ev.target.getAttribute && ev.target.getAttribute('data-tv-amt');
   var provB = ev.target.getAttribute && ev.target.getAttribute('data-tv-provision');
@@ -1916,6 +1947,7 @@ function mrtvListClick(ev){
 }
 document.getElementById('mrtv-list').addEventListener('click', mrtvListClick);
 document.getElementById('mrtv-dormant').addEventListener('click', mrtvListClick);
+document.getElementById('mrtv-archive').addEventListener('click', mrtvListClick);
 
 // M.R. TV customer detail card (Ryan 2026-11-01): click a customer name for
 // contact + plan + logins, payment history (ledger), and email history.
@@ -1945,7 +1977,9 @@ function renderMrtvDetail(d){
   var c = d.customer;
   document.getElementById('mrtv-detail-title').textContent = c.name + (c.orderCode ? ' · ' + c.orderCode : '');
   var pkg = c.package === 'usa' ? 'USA only' : (c.package === 'all' ? 'All countries' : 'Select countries');
-  var h = '<dl class="tv-detail-grid">' +
+  var h = '';
+  if (c.archivedAt) h += '<p style="background:#2a2417;border:1px solid #8a6d2f;border-radius:8px;padding:8px 12px;font-size:13px">Archived as <b>' + esc(c.archiveReason || 'manual') + '</b> on ' + esc(c.archivedAt) + ' — kept for win-back.</p>';
+  h += '<dl class="tv-detail-grid">' +
     '<dt>Email</dt><dd>' + esc(c.email || '—') + '</dd>' +
     '<dt>Cell</dt><dd>' + esc(c.cell || '—') + '</dd>' +
     '<dt>Signed up</dt><dd>' + esc(c.startDate || '—') + '</dd>' +

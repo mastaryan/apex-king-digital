@@ -527,7 +527,7 @@ function mountHome(app, authRequired) {
       if (needPg(req, res)) return;
       const id = req.params.id;
       const c = await getPool().query(
-        "SELECT id, name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, tivimate_bundle, lines, provisioned_at, needs_manual, created_at, order_code FROM mrtv_customers WHERE id = $1",
+        "SELECT id, name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, tivimate_bundle, lines, provisioned_at, needs_manual, created_at, order_code, archived_at, archive_reason FROM mrtv_customers WHERE id = $1",
         [id]);
       if (!c.rows.length) return res.status(404).json({ error: "customer not found" });
       const r = c.rows[0];
@@ -544,6 +544,8 @@ function mountHome(app, authRequired) {
         provisionedAt: r.provisioned_at ? r.provisioned_at.toISOString() : null,
         needsManual: r.needs_manual || "",
         orderCode: r.order_code || null,
+        archivedAt: r.archived_at ? r.archived_at.toISOString().slice(0, 10) : null,
+        archiveReason: r.archive_reason || null,
       };
       const ord = await getPool().query(
         "SELECT id, payload, note, created_at FROM mrtv_ledger_events WHERE kind = 'order' AND (payload->>'customer_id' = $1 OR (payload->>'customer_id' IS NULL AND payload->>'customer' = $2)) ORDER BY created_at ASC",
@@ -578,7 +580,7 @@ function mountHome(app, authRequired) {
       if (needPg(req, res)) return;
       const today = nyToday();
       const { rows } = await getPool().query(
-        "SELECT id, name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, tivimate_bundle, lines, provisioned_at, needs_manual, created_at, order_code FROM mrtv_customers ORDER BY end_date ASC");
+        "SELECT id, name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, tivimate_bundle, lines, provisioned_at, needs_manual, created_at, order_code, archived_at, archive_reason FROM mrtv_customers ORDER BY end_date ASC");
       res.json({
         customers: rows.map((r) => ({
           id: r.id, name: r.name, email: r.email, cell: r.cell, plan: r.plan,
@@ -592,6 +594,8 @@ function mountHome(app, authRequired) {
           provisionedAt: r.provisioned_at ? r.provisioned_at.toISOString() : null,
           needsManual: r.needs_manual || "",
           orderCode: r.order_code || null,
+          archivedAt: r.archived_at ? r.archived_at.toISOString().slice(0, 10) : null,
+          archiveReason: r.archive_reason || null,
         })),
         invoiceRouteOpen: true,
         note: "Invoice route is still open: through the TV provider, or through Apex invoicing? Not decided yet.",
@@ -696,7 +700,7 @@ function mountHome(app, authRequired) {
       const endIso = c.end_date ? c.end_date.toISOString().slice(0, 10) : nyToday();
       const next = c.plan === "monthly" ? addMonthsISO(endIso, 1) : addYearsISO(endIso, 1);
       const u = await getPool().query(
-        "UPDATE mrtv_customers SET end_date = $1 WHERE id = $2 RETURNING end_date",
+        "UPDATE mrtv_customers SET end_date = $1, archived_at = NULL, archive_reason = NULL WHERE id = $2 RETURNING end_date",
         [next, req.params.id]);
       const newEnd = u.rows[0].end_date.toISOString().slice(0, 10);
       res.json({ ok: true, endDate: newEnd, daysLeft: daysBetween(nyToday(), newEnd) });
@@ -712,6 +716,32 @@ function mountHome(app, authRequired) {
       const { rowCount } = await getPool().query("DELETE FROM mrtv_customers WHERE id = $1", [req.params.id]);
       if (!rowCount) return res.status(404).json({ error: "customer not found" });
       res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
+  });
+
+  // Archive / restore an M.R. TV customer (Ryan 2026-11-01): expired or
+  // refunded customers are archived instead of deleted — kept for future
+  // win-back. reason: 'expired' | 'refunded' | 'manual'.
+  app.post("/api/mrtv/customers/:id/archive", authRequired, async (req, res) => {
+    try {
+      if (needPg(req, res)) return;
+      const b = req.body || {};
+      const reason = ["expired", "refunded", "manual"].indexOf(b.reason) >= 0 ? b.reason : "manual";
+      const { rows } = await getPool().query(
+        "UPDATE mrtv_customers SET archived_at = now(), archive_reason = $1 WHERE id = $2 RETURNING id, name",
+        [reason, req.params.id]);
+      if (!rows.length) return res.status(404).json({ error: "customer not found" });
+      res.json({ ok: true, id: rows[0].id, name: rows[0].name, reason: reason });
+    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
+  });
+  app.post("/api/mrtv/customers/:id/restore", authRequired, async (req, res) => {
+    try {
+      if (needPg(req, res)) return;
+      const { rows } = await getPool().query(
+        "UPDATE mrtv_customers SET archived_at = NULL, archive_reason = NULL WHERE id = $1 RETURNING id, name",
+        [req.params.id]);
+      if (!rows.length) return res.status(404).json({ error: "customer not found" });
+      res.json({ ok: true, id: rows[0].id, name: rows[0].name });
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
 
@@ -822,7 +852,7 @@ function mountHome(app, authRequired) {
       // Dormant customers who never renewed get a segmented comeback offer
       // that expires day 30 (stated in the email). Deduped per
       // (customer, end_date) via winback_sent_for. After day 30: silence;
-      // day 45: the delete option appears (existing rule).
+      // day 31: auto-archived as 'expired' (kept for future win-back).
       const wbq = await getPool().query(
         "SELECT id, name, email, plan, end_date, tv_count, renewal_amount_cents, winback_sent_for " +
         "FROM mrtv_customers WHERE end_date IS NOT NULL");
@@ -865,8 +895,16 @@ function mountHome(app, authRequired) {
           try { await require("./mrtv-provision").logEmail({ kind: "winback", customerId: r.id, to: r.email, subject: subject, ok: false, error: em }); } catch (le) { console.error("email log", le.message); }
         }
       }
+      // ---- auto-archive (Ryan 2026-11-01): the win-back offer expires day 30.
+      // Day 31+ past end with no renewal → archived as 'expired' (kept for
+      // future win-back). Replaces the old day-45 delete rule.
+      const arch = await getPool().query(
+        "UPDATE mrtv_customers SET archived_at = now(), archive_reason = 'expired' " +
+        "WHERE archived_at IS NULL AND end_date IS NOT NULL AND end_date < CURRENT_DATE - INTERVAL '31 days' " +
+        "RETURNING id, name");
       res.json({ ok: true, sent: sent, skipped: skipped, errors: errors,
-        winback: { sent: wbSent, skipped: wbSkipped, errors: wbErrors } });
+        winback: { sent: wbSent, skipped: wbSkipped, errors: wbErrors },
+        archived: arch.rows.map((r) => ({ id: r.id, name: r.name })) });
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
   // Event-sourced tracker: four boxes + credits remaining, derived by

@@ -376,6 +376,10 @@ ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS lines JSONB NOT NULL DEFAULT
 ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS provisioned_at TIMESTAMPTZ;
 ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS needs_manual TEXT NOT NULL DEFAULT '';
 ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS ledger_posted_for DATE;
+-- Archive (Ryan 2026-11-01): expired/non-renewed customers are archived, not
+-- deleted — kept for future win-back. archive_reason: 'expired' | 'refunded'.
+ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS archive_reason TEXT;
 -- Sent-mail log (2026-10-29): every M.R. TV email the dashboard sends gets
 -- a row — recipient, subject, SMTP message id + server response, ok/error.
 -- This is the proof-of-send record.
