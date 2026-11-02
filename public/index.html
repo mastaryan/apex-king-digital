@@ -1801,7 +1801,9 @@ function tvCustomerRow(c, dormant){
           if (!c.provisionedAt && !lines.length) {
             btns += '<button class="btn primary" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-provision="' + c.id + '" data-tv-tvs="' + (c.tvCount || 1) + '" data-tv-name="' + esc(c.name) + '">Mark paid &amp; provision</button> ';
           } else if (lines.length) {
-            btns += '<button class="btn" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-renewline="' + c.id + '" data-tv-name="' + esc(c.name) + '">Renew line</button>';
+            // "Renew line" removed 2026-11-01 (Ryan): one-tap "Renewal paid"
+            // covers panel renew + date roll + ledger. The /renew-line API
+            // stays for panel-only retries if ever needed.
           }
         }
         // Day-45 Delete removed 2026-11-01 (Ryan): archive replaces delete.
