@@ -39,6 +39,9 @@ function panelKey() { return process.env.TVPLUS_API_KEY || ""; }
 function lineServer() { return process.env.LINE_SERVER_URL || "http://line.watchmrtv.com"; }
 function cleanStr(s, n) { return String(s || "").trim().slice(0, n || 200); }
 function nyToday() { return new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }); }
+function addMonthsISO(iso, n) { const d = new Date(iso + "T12:00:00Z"); d.setUTCMonth(d.getUTCMonth() + n); return d.toISOString().slice(0, 10); }
+function addYearsISO(iso, n) { const d = new Date(iso + "T12:00:00Z"); d.setUTCFullYear(d.getUTCFullYear() + n); return d.toISOString().slice(0, 10); }
+function daysBetween(a, b) { return Math.round((new Date(b + "T12:00:00Z") - new Date(a + "T12:00:00Z")) / 86400000); }
 function addDaysISO(iso, n) {
   const d = new Date(String(iso) + "T12:00:00");
   d.setDate(d.getDate() + n);
@@ -497,6 +500,70 @@ function mountMrtvProvision(app, authRequired) {
         [JSON.stringify(lines), provAt, req.params.id]);
       if (!rows.length) return res.status(404).json({ error: "customer not found" });
       res.json({ ok: true, id: rows[0].id, name: rows[0].name, lines: lines.length });
+    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
+  });
+
+  // One-tap renewal (Ryan 2026-11-01): "Renewal paid" does everything —
+  // 1. renews the panel lines for one more period (spends credits; aborts
+  //    before touching anything else if any line fails),
+  // 2. rolls the dashboard end_date forward one plan period,
+  // 3. posts the ledger order (Cash App 2.75% fee), guarded by
+  //    ledger_posted_for so a re-click can't double-post.
+  // Body: { gross_cents } — the amount the customer actually paid (Ryan can
+  // lower it for win-back discounts).
+  app.post("/api/mrtv/customers/:id/renew", authRequired, async (req, res) => {
+    try {
+      if (needPg(req, res)) return;
+      const b = req.body || {};
+      const grossC = Math.round(Number(b.gross_cents) || 0);
+      if (!(grossC > 0)) return res.status(400).json({ error: "a paid amount is required" });
+      const { rows } = await getPool().query(
+        "SELECT id, name, plan, tv_count, end_date, order_code, lines, ledger_posted_for FROM mrtv_customers WHERE id = $1",
+        [req.params.id]);
+      if (!rows.length) return res.status(404).json({ error: "customer not found" });
+      const c = rows[0];
+      const lines = Array.isArray(c.lines) ? c.lines : [];
+      const live = lines.filter((l) => !l.demo);
+      if (!live.length) return res.status(400).json({ error: "no provisioned lines to renew — use Mark paid & provision first" });
+      if (!panelKey()) return res.status(400).json({ error: "TVPLUS_API_KEY is not set in the Render env" });
+      const sub = c.plan === "monthly" ? 1 : 12;
+
+      // 1. Panel renew first — if any line fails, nothing else changes.
+      const results = [];
+      for (const l of live) {
+        try {
+          await panelCall({ action: "renew", type: l.type || "m3u", username: l.username, password: l.password, sub: String(sub) });
+          l.renewed_at = new Date().toISOString();
+          results.push({ tv: l.tv, ok: true });
+        } catch (e) { results.push({ tv: l.tv, ok: false, error: String(e.message || e).slice(0, 120) }); }
+      }
+      const bad = results.filter((r) => !r.ok);
+      if (bad.length) return res.status(502).json({ error: "panel renew failed — nothing else was changed: " + bad.map((r) => "TV " + r.tv + ": " + r.error).join("; ") });
+      await getPool().query("UPDATE mrtv_customers SET lines = $1::jsonb WHERE id = $2", [JSON.stringify(lines), c.id]);
+
+      // 2. Roll the dashboard date (also revives archived/dormant).
+      const endIso = c.end_date ? c.end_date.toISOString().slice(0, 10) : nyToday();
+      const next = c.plan === "monthly" ? addMonthsISO(endIso, 1) : addYearsISO(endIso, 1);
+      const u = await getPool().query(
+        "UPDATE mrtv_customers SET end_date = $1, archived_at = NULL, archive_reason = NULL WHERE id = $2 RETURNING end_date",
+        [next, c.id]);
+      const newEnd = u.rows[0].end_date.toISOString().slice(0, 10);
+
+      // 3. Ledger order (same shape as the provision flow).
+      let ledgerPosted = false;
+      const lpIso = c.ledger_posted_for ? c.ledger_posted_for.toISOString().slice(0, 10) : null;
+      if (lpIso !== newEnd) {
+        const feeC = Math.round(grossC * 0.0275);
+        const orderCode = c.order_code || ("MR-" + String(c.id).slice(0, 8).toUpperCase());
+        await postLedgerOrder({
+          customer: c.name, customerId: c.id, date: nyToday(), grossC: grossC, feeC: feeC,
+          credits: (c.tv_count || 1) * sub, plan: c.plan,
+          note: "Renewal (one-tap) — " + orderCode,
+        });
+        await getPool().query("UPDATE mrtv_customers SET ledger_posted_for = $1 WHERE id = $2", [newEnd, c.id]);
+        ledgerPosted = true;
+      }
+      res.json({ ok: true, endDate: newEnd, daysLeft: daysBetween(nyToday(), newEnd), ledgerPosted: ledgerPosted, panel: results });
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
 

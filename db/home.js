@@ -687,25 +687,8 @@ function mountHome(app, authRequired) {
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
 
-  // Mark an M.R. TV renewal paid: roll end_date forward one plan period.
-  // This re-arms the next automated renewal email. Ryan clicks it when the
-  // Cash App money lands; the ledger order itself is still entered by hand.
-  app.post("/api/mrtv/customers/:id/renew", authRequired, async (req, res) => {
-    try {
-      if (needPg(req, res)) return;
-      const { rows } = await getPool().query(
-        "SELECT id, plan, end_date FROM mrtv_customers WHERE id = $1", [req.params.id]);
-      if (!rows.length) return res.status(404).json({ error: "customer not found" });
-      const c = rows[0];
-      const endIso = c.end_date ? c.end_date.toISOString().slice(0, 10) : nyToday();
-      const next = c.plan === "monthly" ? addMonthsISO(endIso, 1) : addYearsISO(endIso, 1);
-      const u = await getPool().query(
-        "UPDATE mrtv_customers SET end_date = $1, archived_at = NULL, archive_reason = NULL WHERE id = $2 RETURNING end_date",
-        [next, req.params.id]);
-      const newEnd = u.rows[0].end_date.toISOString().slice(0, 10);
-      res.json({ ok: true, endDate: newEnd, daysLeft: daysBetween(nyToday(), newEnd) });
-    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
-  });
+  // (Renew endpoint moved to db/mrtv-provision.js 2026-11-01: one-tap renewal
+  // now renews panel lines + rolls the date + posts the ledger order.)
 
   // Delete an M.R. TV customer (Ryan 2026-10-29: dormant cleanup after 45
   // days past end). Dashboard record only: their panel lines are untouched

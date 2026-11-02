@@ -1790,7 +1790,7 @@ function tvCustomerRow(c, dormant){
           return '<span style="font-size:13px">TV ' + esc(String(l.tv)) + (l.demo ? ' (demo)' : '') + ': <code>' + esc(l.username) + '</code> / <code>' + esc(l.password) + '</code></span>';
         }).join(' · ');
       }
-      var btns = '<br><button class="btn" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-paid="' + c.id + '" data-tv-name="' + esc(c.name) + '" data-tv-plan="' + esc(c.plan) + '">Renewal paid</button> ' +
+      var btns = '<br><button class="btn" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-paid="' + c.id + '" data-tv-name="' + esc(c.name) + '" data-tv-plan="' + esc(c.plan) + '" data-tv-cents="' + (c.renewalAmountCents || 0) + '">Renewal paid</button> ' +
         '<button class="btn" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-amt="' + c.id + '" data-tv-cur="' + (c.renewalAmountCents === null || c.renewalAmountCents === undefined ? '' : (c.renewalAmountCents / 100).toFixed(2)) + '">Edit $</button> ';
       var archived = !!c.archivedAt;
       if (archived) {
@@ -1925,9 +1925,19 @@ function mrtvListClick(ev){
 
   if (paid) {
     var nm = ev.target.getAttribute('data-tv-name'), pl = ev.target.getAttribute('data-tv-plan');
-    if (!confirm('Mark renewal paid for ' + nm + ' and extend by one ' + pl + ' period?')) return;
-    api('/api/mrtv/customers/' + paid + '/renew', { method: 'POST' }).then(function(r){
+    var cents = parseInt(ev.target.getAttribute('data-tv-cents') || '0', 10) || 0;
+    var defAmt = (cents / 100).toFixed(2).replace(/\.00$/, '');
+    var amtStr = prompt('Amount ' + nm + ' paid (edit for discounts):', defAmt);
+    if (amtStr === null) return;
+    var grossC = Math.round(parseFloat(amtStr) * 100);
+    if (!(grossC > 0)) { alert('Enter a valid amount.'); return; }
+    if (!confirm('Mark renewal paid for ' + nm + '?\n\nOne tap will:\n- Renew their panel line(s) for one more ' + pl + ' period\n- Extend their dashboard date\n- Post a $' + (grossC / 100).toFixed(2) + ' ledger sale')) return;
+    api('/api/mrtv/customers/' + paid + '/renew', { method: 'POST', body: JSON.stringify({ gross_cents: grossC }) }).then(function(r){
       if (!r.ok) { alert('Failed: ' + (r.j.error || 'unknown error')); return; }
+      var msg = 'Renewed through ' + r.j.endDate + ' (' + r.j.daysLeft + ' days).';
+      msg += '\nPanel lines renewed: ' + (r.j.panel || []).length + '.';
+      msg += '\nLedger ' + (r.j.ledgerPosted ? 'posted.' : 'already posted for this period.');
+      alert(msg);
       loadMrtv(); loadHome();
     });
     return;
