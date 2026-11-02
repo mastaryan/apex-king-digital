@@ -180,7 +180,13 @@ function renderGet(apiPath) {
 app.get('/api/status', authRequired, async (req, res) => {
   if (!RENDER_API_KEY) return res.json({ configured: false, services: {} });
   const sites = loadSites();
-  const ids = [...new Set(sites.map(s => s.renderServiceId).filter(Boolean))];
+  const svcInfo = {};
+  for (const s of sites) {
+    if (s.renderServiceId && !svcInfo[s.renderServiceId]) {
+      svcInfo[s.renderServiceId] = { url: s.url || null, name: s.name || null };
+    }
+  }
+  const ids = Object.keys(svcInfo);
   const out = {};
   await Promise.all(ids.map(async (id) => {
     try {
@@ -195,11 +201,27 @@ app.get('/api/status', authRequired, async (req, res) => {
         finishedAt = d.finishedAt || d.createdAt || null;
       } catch (e) { /* leave null */ }
       const suspended = s.suspended && s.suspended !== 'not_suspended';
+      const renderOk = !suspended && deployStatus === 'live';
+      // Public URL check: actually load the site's domain. Render being "live"
+      // is not enough — DNS may still point at the old host (e.g. GoDaddy
+      // suspended page returns HTTP 200, which a status-code check would miss).
+      const urlCheck = await checkPublicUrl(svcInfo[id].url);
+      const urlDown = renderOk && !urlCheck.ok;
       out[id] = {
-        ok: !suspended && deployStatus === 'live',
+        ok: renderOk && urlCheck.ok,
+        renderOk,
         suspended: !!suspended,
         deployStatus, finishedAt,
         serviceName: s.name || null,
+        url: svcInfo[id].url,
+        urlOk: urlCheck.ok,
+        urlFinal: urlCheck.finalUrl,
+        urlReason: urlCheck.reason,
+        // Surface domain outages in the existing frontend's error slot so the
+        // red dot reads sensibly even before the frontend copy is updated.
+        error: urlDown
+          ? ('domain down: ' + (svcInfo[id].url || '') + ' (' + (urlCheck.reason || 'unreachable') + ') — Render live, domain not reaching it')
+          : undefined,
       };
     } catch (e) {
       out[id] = { ok: false, error: String(e.message || e).slice(0, 120) };
@@ -207,6 +229,45 @@ app.get('/api/status', authRequired, async (req, res) => {
   }));
   res.json({ configured: true, services: out });
 });
+
+// Load a site's public URL and detect dead/suspended/parked pages.
+// Returns { ok, finalUrl, reason }. A hosting "suspended" page returns HTTP 200,
+// so we follow redirects and scan the final URL + body for suspension markers.
+async function checkPublicUrl(url) {
+  if (!url) return { ok: true, finalUrl: null, reason: null };
+  const SUSPEND_URL = /suspendedpage\.cgi|\/suspended|account-suspended/i;
+  const SUSPEND_BODY = /suspendedpage\.cgi|this account has been suspended|website has been suspended|hosting.{0,20}suspended/i;
+  let target = url;
+  if (!/^https?:\/\//i.test(target)) target = 'https://' + target;
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 12000);
+    let resp;
+    try {
+      resp = await fetch(target, {
+        signal: ctrl.signal,
+        redirect: 'follow',
+        headers: { 'User-Agent': 'ApexDashboard/1.0 site-status-check' },
+      });
+    } finally { clearTimeout(timer); }
+    const finalUrl = resp.url || target;
+    if (SUSPEND_URL.test(finalUrl)) {
+      return { ok: false, finalUrl, reason: 'suspended' };
+    }
+    let body = '';
+    try { body = await resp.text(); } catch (e) { /* ignore */ }
+    if (SUSPEND_BODY.test(body.slice(0, 20000))) {
+      return { ok: false, finalUrl, reason: 'suspended' };
+    }
+    if (!resp.ok) {
+      return { ok: false, finalUrl, reason: 'http_' + resp.status };
+    }
+    return { ok: true, finalUrl, reason: null };
+  } catch (e) {
+    const msg = String((e && e.name === 'AbortError') ? 'timeout' : (e.message || e)).slice(0, 80);
+    return { ok: false, finalUrl: null, reason: 'unreachable: ' + msg };
+  }
+}
 
 // Stripe bridge (checkout sessions + webhook for storefront orders)
 try { require('./stripe-bridge').mountStripeBridge(app); } catch (e) { console.error('stripe bridge mount', e.message); }
