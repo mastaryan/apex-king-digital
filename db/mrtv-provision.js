@@ -468,6 +468,38 @@ function mountMrtvProvision(app, authRequired) {
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
 
+  // Backfill panel lines for customers provisioned by hand in the panel
+  // (Ryan 2026-11-01): links existing lines into the dashboard so the
+  // "Mark paid & provision" trap disappears and detail / resend / renew-line
+  // work. Body: { lines: [{tv, username, password, sub?, pack?, server?}],
+  // provisioned_at?: "YYYY-MM-DD" }. Never creates panel lines.
+  app.post("/api/mrtv/customers/:id/backfill-lines", authRequired, async (req, res) => {
+    try {
+      if (needPg(req, res)) return;
+      const b = req.body || {};
+      if (!Array.isArray(b.lines) || !b.lines.length)
+        return res.status(400).json({ error: "lines array required" });
+      const lines = [];
+      for (const l of b.lines) {
+        const username = cleanStr(l.username, 64), password = cleanStr(l.password, 64);
+        if (!username || !password) return res.status(400).json({ error: "each line needs username + password" });
+        lines.push({
+          tv: Math.max(1, parseInt(l.tv, 10) || 1),
+          type: "m3u", sub: parseInt(l.sub, 10) || 12, pack: parseInt(l.pack, 10) || 36930,
+          username: username, password: password, user_id: null, demo: false,
+          server: cleanStr(l.server, 120) || "http://line.tvdeluxe.us",
+          created_at: new Date().toISOString(), backfilled: true,
+        });
+      }
+      const provAt = /^\d{4}-\d{2}-\d{2}$/.test(String(b.provisioned_at || "")) ? b.provisioned_at : null;
+      const { rows } = await getPool().query(
+        "UPDATE mrtv_customers SET lines = $1::jsonb, provisioned_at = COALESCE($2::timestamptz, provisioned_at, now()) WHERE id = $3 RETURNING id, name",
+        [JSON.stringify(lines), provAt, req.params.id]);
+      if (!rows.length) return res.status(404).json({ error: "customer not found" });
+      res.json({ ok: true, id: rows[0].id, name: rows[0].name, lines: lines.length });
+    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
+  });
+
   // Renew every non-demo line for one more plan period (Ryan clicks this
   // after the renewal money lands and he hits "Renewal paid").
   app.post("/api/mrtv/customers/:id/renew-line", authRequired, async (req, res) => {
