@@ -53,6 +53,27 @@ function fmtLongDate(iso) {
   return mon + " " + Number(p[2]) + ", " + p[0];
 }
 
+// Telegram ping (Ryan 2026-11-03): renewal requests ping Ryan's phone.
+// Env: TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID on the Render service.
+// Skips silently when either is missing; never throws — callers use the
+// returned object to decide what to log.
+async function sendTelegramPing(text) {
+  const token = process.env.TELEGRAM_BOT_TOKEN || "";
+  const chatId = process.env.TELEGRAM_CHAT_ID || "";
+  if (!token || !chatId) return { ok: false, skipped: true, reason: "not configured" };
+  try {
+    const r = await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text: String(text || "").slice(0, 4000) }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.ok === false)
+      return { ok: false, error: String((j && j.description) || ("HTTP " + r.status)).slice(0, 160) };
+    return { ok: true };
+  } catch (e) { return { ok: false, error: String(e.message || e).slice(0, 160) }; }
+}
+
 // Panel GET. Throws NO_KEY when the env var is missing so callers can
 // answer "not configured" instead of "panel down".
 async function panelCall(params) {
@@ -258,6 +279,13 @@ function mountMrtvProvision(app, authRequired) {
       await ml.verify();
       res.json({ ok: true, from: loginFrom() });
     } catch (e) { res.json({ ok: false, from: loginFrom(), error: String(e.message || e).slice(0, 200) }); }
+  });
+
+  // TEST ONLY: send a Telegram ping to the configured chat. Proves the
+  // renewal-request ping will reach Ryan before the 2.0 flow goes live.
+  app.post("/api/mrtv/telegram/test", authRequired, async (req, res) => {
+    const r = await sendTelegramPing("M.R. TV Telegram test — if you got this, renewal pings will reach you here.");
+    res.json(r);
   });
 
   // TEST ONLY: send a filled login email to an arbitrary address via the
@@ -658,4 +686,4 @@ function mountMrtvProvision(app, authRequired) {
   });
 }
 
-module.exports = { mountMrtvProvision, fillLoginEmail, packFor, LOGIN_TEMPLATE, logEmail };
+module.exports = { mountMrtvProvision, fillLoginEmail, packFor, LOGIN_TEMPLATE, logEmail, sendTelegramPing };
