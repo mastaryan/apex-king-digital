@@ -33,6 +33,10 @@ const {
   stripeCall, findOrCreateCustomer, sendMail, fetchBuffer,
 } = require("../invoices");
 const { getAudit } = require("./audits");
+const { build_masked } = require("./mask-public");
+const { makeZip } = require("./zip-store");
+const path = require("path");
+const fs = require("fs");
 
 const COPY_EMAIL = process.env.INVOICE_COPY_EMAIL || "sizemore.ryan@gmail.com";
 const FROM = "Apex King Digital <hello@apexkingdigital.com>";
@@ -317,6 +321,28 @@ async function settleAuditOrder(pool, orderId, pay) {
     });
   }
   return { ok: true, auditId };
+}
+
+// Rows for the masked public build, in audits.json shape.
+async function exportAuditsForMask(pool) {
+  const { rows: audits } = await pool.query(
+    `SELECT DISTINCT ON (domain) id, domain, audit_date, audit_scope, verdict FROM audits
+     WHERE domain NOT LIKE '%example%' ORDER BY domain, audit_date DESC NULLS LAST, id DESC`);
+  const out = [];
+  for (const a of audits) {
+    const { rows: fr } = await pool.query(
+      "SELECT kind, severity, name, text, status FROM audit_findings WHERE audit_id = $1 ORDER BY sort_order",
+      [a.id]);
+    if (!fr.length) continue; // pending shells stay off the public side
+    out.push({
+      id: a.id, domain: a.domain,
+      date: a.audit_date ? a.audit_date.toISOString().slice(0, 10) : null,
+      audit_scope: a.audit_scope, verdict: a.verdict,
+      issues: fr.filter(r => r.kind === "issue" && r.status === "open").map(r => ({ severity: r.severity, text: r.text })),
+      trackers: fr.filter(r => r.kind === "tracker").map(r => ({ name: r.name, status: r.text })),
+    });
+  }
+  return out;
 }
 
 function mountAuditBilling(app, authRequired) {
@@ -749,31 +775,44 @@ function mountAuditBilling(app, authRequired) {
   app.get("/api/admin/audits/masked-export", authRequired, async (req, res) => {
     try {
       if (needPg(req, res)) return;
-      const pool = getPool();
-      const { rows: audits } = await pool.query(
-        `SELECT DISTINCT ON (domain) id, domain, audit_date, audit_scope, verdict FROM audits
-         WHERE domain NOT LIKE '%example%' ORDER BY domain, audit_date DESC NULLS LAST, id DESC`);
-      const out = [];
-      for (const a of audits) {
-        const { rows: fr } = await pool.query(
-          "SELECT kind, severity, name, text, status FROM audit_findings WHERE audit_id = $1 ORDER BY sort_order",
-          [a.id]);
-        // Pending shells (created from an order, no findings yet) stay
-        // off the public side until Ryan audits them — an empty audit
-        // would otherwise score a false 100.
-        if (!fr.length) continue;
-        out.push({
-          id: a.id, domain: a.domain,
-          date: a.audit_date ? a.audit_date.toISOString().slice(0, 10) : null,
-          audit_scope: a.audit_scope, verdict: a.verdict,
-          // Public side shows the CURRENT state: fixed findings are gone
-          // (the PG score already excludes them) and live only in the
-          // dashboard history.
-          issues: fr.filter(r => r.kind === "issue" && r.status === "open").map(r => ({ severity: r.severity, text: r.text })),
-          trackers: fr.filter(r => r.kind === "tracker").map(r => ({ name: r.name, status: r.text })),
-        });
-      }
+      const out = await exportAuditsForMask(getPool());
       res.json({ generated: new Date().toISOString().slice(0, 10), count: out.length, audits: out });
+    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
+  });
+
+  // ---------- one-click public-site publish ----------
+  // Builds the masked audits.js from live PG data, zips it with the
+  // public-site shell (index.html + logo), and returns the Drop-ready zip.
+  // The mask self-verifies: ANY leak (real domain, email, handle,
+  // tracker ID) refuses the download with the failure list.
+  app.get("/api/admin/audits/public-site.zip", authRequired, async (req, res) => {
+    try {
+      if (needPg(req, res)) return;
+      const raw = await exportAuditsForMask(getPool());
+      const { js, failures, sites } = build_masked(raw);
+      if (failures.length) {
+        return res.status(500).json({ error: "mask verification failed — publish refused", failures });
+      }
+      const dir = path.join(__dirname, "public-site");
+      const indexHtml = fs.readFileSync(path.join(dir, "index.html"));
+      // The logo is binary (can't ride the git push), so it's fetched from
+      // the live public site at publish time and bundled into the zip.
+      let logo;
+      try {
+        logo = await fetchBuffer(PUBLIC_TOOL_URL + "/apex-king-logo.png");
+      } catch (e) {
+        return res.status(500).json({ error: "could not fetch the live site logo — publish refused", detail: String(e.message || e).slice(0, 200) });
+      }
+      const zip = makeZip([
+        { name: "index.html", data: indexHtml },
+        { name: "audits.js", data: Buffer.from(js, "utf8") },
+        { name: "apex-king-logo.png", data: logo },
+      ]);
+      res.setHeader("Content-Type", "application/zip");
+      res.setHeader("Content-Disposition",
+        'attachment; filename="tracking-health-score-public-' + new Date().toISOString().slice(0, 10) + '.zip"');
+      res.send(zip);
+      console.log("public-site publish: " + sites.length + " sites, " + zip.length + " bytes");
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
 
@@ -882,20 +921,9 @@ function mountAuditBilling(app, authRequired) {
           ? "bundle checkout is still being set up — pick the $25 audit for now, or email hello@apexkingdigital.com and we'll bundle it for you"
           : "audit checkout is unavailable right now — email hello@apexkingdigital.com" });
       }
-      await sendMail({
-        to: COPY_EMAIL,
-        subject: "New tracking audit order — " + domain + " (" + choice + ", " + (STORE_TYPE_DISPLAY[storeType] || storeType) + ")",
-        text:
-          "A visitor ordered a tracking audit from the public tool.\n\n" +
-          "Website: " + domain + " (typed: " + String(b.website).slice(0, 300) + ")\n" +
-          "Store type: " + (STORE_TYPE_DISPLAY[storeType] || storeType) + "\n" +
-          "Choice: " + choice + " — $" + (PRICES[choice].amountCents / 100) + "\n" +
-          "Buyer email: " + (buyerEmail || "(not given — Stripe checkout collects it)") + "\n" +
-          "Order: " + o.id + " · " + o.created_at + "\n\n" +
-          "The buyer pays at a per-order Stripe Checkout link; the webhook auto-settles " +
-          "payment, creates the pending audit, and emails you. Run the audit, add findings, " +
-          "then send the report from the dashboard.\n",
-      });
+      // Ryan 2026-11-03: NO email here. The only order email is the
+      // payment-settled one from the webhook — an order is just a
+      // started checkout until Stripe confirms payment.
       res.json({ ok: true, orderId: o.id, domain, paymentUrl });
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
