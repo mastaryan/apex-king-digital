@@ -1083,6 +1083,20 @@ function mountAuditBilling(app, authRequired) {
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
 
+  app.post("/api/audits/orders/:id/cancel", authRequired, async (req, res) => {
+    try {
+      if (needPg(req, res)) return;
+      const pool = getPool();
+      const { rows } = await pool.query("SELECT * FROM audit_orders WHERE id = $1", [req.params.id]);
+      if (!rows.length) return res.status(404).json({ error: "order not found" });
+      const o = rows[0];
+      if (o.status === "paid" || o.status === "audited")
+        return res.status(400).json({ error: "order already paid - void it instead" });
+      await pool.query("UPDATE audit_orders SET status = 'cancelled' WHERE id = $1", [o.id]);
+      res.json({ ok: true, orderId: o.id, domain: o.domain });
+    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
+  });
+
   app.post("/api/audits/orders/:id/create-audit", authRequired, async (req, res) => {
     try {
       if (needPg(req, res)) return;
