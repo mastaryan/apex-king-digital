@@ -278,6 +278,7 @@ CREATE INDEX IF NOT EXISTS audit_orders_domain_idx ON audit_orders (domain);
 CREATE INDEX IF NOT EXISTS audit_orders_status_idx ON audit_orders (status);
 -- 2026-11-03 (true store): per-order Stripe Checkout Sessions + webhook auto-settle
 ALTER TABLE audit_orders ADD COLUMN IF NOT EXISTS stripe_session_id TEXT;
+ALTER TABLE audit_orders ADD COLUMN IF NOT EXISTS is_reaudit BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE audit_orders DROP CONSTRAINT IF EXISTS audit_orders_status_check;
 ALTER TABLE audit_orders ADD CONSTRAINT audit_orders_status_check
   CHECK (status IN ('ordered','paid','audited','cancelled'));

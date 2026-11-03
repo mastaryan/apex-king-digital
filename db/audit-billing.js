@@ -285,12 +285,15 @@ async function settleAuditOrder(pool, orderId, pay) {
   const auditId = await createPendingShell(pool, o.domain, o.store_type);
   const buyerEmail = cleanEmail(pay.buyerEmail) || o.buyer_email;
   const amount = Number(pay.amountCents) || PRICES[o.choice].amountCents;
+  // Re-audit ($25) includes the fix guide — unlock it like a bundle.
+  const unlockKind = o.is_reaudit ? "bundle" : o.choice;
+  const note = "webhook auto-settle" + (o.is_reaudit ? " · re-audit: guide included ($25)" : "");
   await pool.query(
     `INSERT INTO audit_purchases (audit_id, kind, amount_cents, stripe_ref, buyer_email, is_test, note)
      VALUES ($1,$2,$3,$4,$5,FALSE,$6)`,
     [auditId, o.choice, amount, String(pay.sessionId || "").slice(0, 120) || null,
-     buyerEmail || null, "webhook auto-settle"]);
-  const next = unlockAfterPurchase("listed", o.choice);
+     buyerEmail || null, note]);
+  const next = unlockAfterPurchase("listed", unlockKind);
   if (next) await pool.query("UPDATE audits SET unlock_status = $1 WHERE id = $2", [next, auditId]);
   await pool.query(
     "UPDATE audit_orders SET status = 'paid', audit_id = $1, stripe_session_id = $2 WHERE id = $3",
@@ -309,6 +312,7 @@ async function settleAuditOrder(pool, orderId, pay) {
       subject: "Your Tracking Health Score audit is queued",
       text: "Thanks — payment received for the Website Tracking Audit of " + o.domain + ".\n\n" +
         "What's next: we run the audit by hand (trackers, consent, leaks), then your report arrives by email. " +
+        (o.is_reaudit ? "This re-audit includes the fix guide — how to fix each finding, step by step. " : "") +
         "Most reports go out within 2 business days.\n\n— Apex King Digital · hello@apexkingdigital.com",
     });
   }
@@ -834,11 +838,17 @@ function mountAuditBilling(app, authRequired) {
       }
       const buyerEmail = cleanEmail(b.buyer_email);
       if (buyerEmail && !isEmail(buyerEmail)) return res.status(400).json({ error: "that email address doesn't look right" });
+      // Ryan 2026-11-03: a re-audit is $25 and INCLUDES the fix guide.
+      // We detect it here but never tell the buyer — to them it's a new audit.
+      const { rows: prior } = await pool.query(
+        "SELECT 1 FROM audits WHERE domain = $1 AND label != 'Pending' LIMIT 1", [domain]);
+      const isReaudit = prior.length > 0;
       const { rows } = await pool.query(
-        `INSERT INTO audit_orders (website, domain, store_type, choice, buyer_email)
-         VALUES ($1,$2,$3,$4,$5) RETURNING id, domain, store_type, choice, created_at`,
-        [String(b.website).slice(0, 300), domain, storeType, choice, buyerEmail || null]);
+        `INSERT INTO audit_orders (website, domain, store_type, choice, buyer_email, is_reaudit)
+         VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, domain, store_type, choice, created_at`,
+        [String(b.website).slice(0, 300), domain, storeType, choice, buyerEmail || null, isReaudit]);
       const o = rows[0];
+      o.is_reaudit = isReaudit;
       // Per-order Stripe Checkout Session (true store, Ryan 2026-11-03).
       // metadata ties the payment back to this order in the webhook.
       // Falls back to the static payment link if Stripe isn't configured.
@@ -921,29 +931,6 @@ function mountAuditBilling(app, authRequired) {
       });
       console.log("audit webhook settle", md.audit_order_id, JSON.stringify(r));
     } catch (e) { console.error("audit webhook settle", e.message); }
-  });
-
-  // ---------- "am I listed?" lookup (public, masked) ----------
-  // The vendor types their domain; we answer listed/not + audit date.
-  // Nothing about anyone else's site leaks — the domain they typed is the
-  // only one we ever name back.
-  app.get("/api/public/audits/lookup", async (req, res) => {
-    res.setHeader("Access-Control-Allow-Origin", PUBLIC_TOOL_URL);
-    try {
-      if (!pgEnabled()) return res.status(503).json({ error: "lookup unavailable" });
-      const domain = normalizeDomain(req.query.domain);
-      if (!domain) return res.json({ listed: false });
-      const { rows } = await getPool().query(
-        `SELECT masked_domain, audit_date FROM audits
-         WHERE domain = $1 AND label != 'Pending' ORDER BY audit_date DESC NULLS LAST LIMIT 1`,
-        [domain]);
-      if (!rows.length) return res.json({ listed: false });
-      res.json({
-        listed: true,
-        masked: rows[0].masked_domain,
-        auditDate: rows[0].audit_date ? rows[0].audit_date.toISOString().slice(0, 10) : null,
-      });
-    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 200) }); }
   });
 
   app.get("/api/audits/orders", authRequired, async (req, res) => {
