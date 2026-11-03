@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tracking Health Score — Apex King Digital</title>
+<link rel="icon" href="apex-king-logo.png">
+<style>
+:root{
+  --bg:#0b0d10; --panel:#14171c; --panel2:#1a1e24; --border:#23272e;
+  --text:#e6e9ee; --muted:#9aa3af; --faint:#6b7280;
+  --green:#22c55e; --amber:#f59e0b; --red:#ef4444; --blue:#3b82f6;
+  --accent:#c9ced6;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5}
+a{color:#7dd3fc;text-decoration:none}
+a:hover{text-decoration:underline}
+.app{display:flex;min-height:100vh}
+/* Sidebar */
+.sidebar{width:240px;flex-shrink:0;background:#0e1013;border-right:1px solid var(--border);display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+.brand{display:flex;align-items:center;gap:10px;padding:18px 16px 14px;border-bottom:1px solid var(--border)}
+.brand img{width:38px;height:38px;border-radius:8px;object-fit:cover}
+.brand .name{font-weight:700;font-size:14px;line-height:1.2}
+.brand .sub{font-size:11px;color:var(--muted)}
+.nav{padding:10px 8px;flex:1;overflow-y:auto}
+.nav .sec{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);padding:12px 10px 6px}
+.nav button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:none;border:none;color:var(--muted);padding:9px 10px;border-radius:8px;font-size:13.5px;cursor:pointer}
+.nav button:hover{background:var(--panel2);color:var(--text)}
+.nav button.active{background:var(--panel2);color:#fff;font-weight:600}
+.nav button .ic{width:18px;text-align:center}
+.nav .badge{margin-left:auto;background:var(--red);color:#fff;font-size:10px;font-weight:700;border-radius:99px;padding:1px 7px}
+.side-foot{padding:14px;border-top:1px solid var(--border)}
+.btn{display:inline-block;background:var(--green);color:#04120a;font-weight:700;border:none;border-radius:8px;padding:10px 14px;font-size:13.5px;cursor:pointer;text-align:center;width:100%}
+.btn:hover{filter:brightness(1.1);text-decoration:none;color:#04120a}
+.btn.ghost{background:var(--panel2);color:var(--text);border:1px solid var(--border)}
+.btn.ghost:hover{color:#fff}
+.coming{margin-top:10px;background:var(--panel);border:1px dashed var(--border);border-radius:8px;padding:10px 12px;font-size:12px;color:var(--muted)}
+.coming b{color:var(--text)}
+/* Main */
+.main{flex:1;min-width:0;padding:26px 30px 60px}
+.topbar{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px}
+.topbar h1{font-size:22px;font-weight:800;letter-spacing:-.01em}
+.topbar .client{font-size:13px;color:var(--muted);margin-top:2px}
+.topbar .actions{display:flex;gap:10px}
+.topbar .actions .btn{width:auto;padding:9px 16px}
+h2{font-size:16px;font-weight:700;margin:26px 0 12px}
+h3{font-size:13px;font-weight:700;margin:0 0 6px}
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:18px 20px;margin-bottom:18px}
+.panel.muted{color:var(--muted);font-size:13px}
+.grid{display:grid;gap:14px}
+.grid.c4{grid-template-columns:repeat(4,1fr)}
+.grid.c2{grid-template-columns:1fr 1fr}
+@media(max-width:900px){.grid.c4{grid-template-columns:repeat(2,1fr)}.grid.c2{grid-template-columns:1fr}.sidebar{width:200px}.main{padding:18px}}
+/* Score block */
+.scorewrap{display:flex;gap:28px;align-items:center;flex-wrap:wrap}
+.gauge{position:relative;width:150px;height:150px;flex-shrink:0}
+.gauge svg{transform:rotate(-90deg)}
+.gauge .val{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.gauge .val .n{font-size:34px;font-weight:800;line-height:1}
+.gauge .val .d{font-size:12px;color:var(--muted)}
+.score-meta .lbl{font-size:15px;font-weight:700;margin-bottom:4px}
+.score-meta p{color:var(--muted);font-size:13px;max-width:560px}
+.pill{display:inline-block;font-size:11px;font-weight:700;border-radius:99px;padding:2px 9px;vertical-align:middle}
+.pill.green{background:rgba(34,197,94,.15);color:#4ade80}
+.pill.amber{background:rgba(245,158,11,.15);color:#fbbf24}
+.pill.red{background:rgba(239,68,68,.15);color:#f87171}
+.pill.grey{background:rgba(154,163,175,.15);color:#c9ced6}
+.pill.blue{background:rgba(59,130,246,.15);color:#60a5fa}
+/* Stat cards */
+.stat{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 18px}
+.stat .k{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.stat .v{font-size:30px;font-weight:800;margin-top:4px}
+.stat .s{font-size:12px;color:var(--faint);margin-top:2px}
+/* Tables */
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{text-align:left;color:var(--faint);font-size:11px;text-transform:uppercase;letter-spacing:.07em;padding:8px 10px;border-bottom:1px solid var(--border)}
+td{padding:10px;border-bottom:1px solid var(--border);vertical-align:top}
+tr:last-child td{border-bottom:none}
+tbody tr:hover{background:var(--panel2)}
+tbody tr.clickable{cursor:pointer}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.dot.g{background:var(--green)}.dot.a{background:var(--amber)}.dot.r{background:var(--red)}.dot.gr{background:#6b7280}
+.status{font-weight:600}
+.status.err{color:#f87171}.status.warn{color:#fbbf24}.status.ok{color:#4ade80}
+/* Findings */
+.finding{display:flex;gap:10px;padding:12px 0;border-bottom:1px solid var(--border)}
+.finding:last-child{border-bottom:none}
+.finding .sev{flex-shrink:0}
+.finding p{font-size:13.5px}
+.finding .src{font-size:12px;color:var(--faint);margin-top:3px}
+/* Search */
+.search{width:100%;max-width:420px;background:var(--panel);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:10px 12px;font-size:13.5px;margin-bottom:14px}
+.search::placeholder{color:var(--faint)}
+/* Modal */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;align-items:center;justify-content:center;z-index:50;padding:20px}
+.modal-bg.open{display:flex}
+.modal{background:var(--panel);border:1px solid var(--border);border-radius:14px;max-width:520px;width:100%;padding:24px}
+.modal h3{font-size:17px;margin-bottom:8px}
+.modal p{color:var(--muted);font-size:13.5px;margin-bottom:12px}
+.modal .row{display:flex;gap:10px;margin-top:16px}
+.modal .row .btn{flex:1}
+.foot{margin-top:34px;font-size:12px;color:var(--faint);line-height:1.7}
+.foot b{color:var(--muted)}
+.note{font-size:12.5px;color:var(--muted);margin-top:10px}
+kbd{background:var(--panel2);border:1px solid var(--border);border-radius:4px;padding:1px 5px;font-size:11px}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <img src="apex-king-logo.png" alt="Apex King Digital">
+      <div>
+        <div class="name">Apex King Digital</div>
+        <div class="sub">Tracking Health Score</div>
+      </div>
+    </div>
+    <nav class="nav" id="nav">
+      <div class="sec">Audit</div>
+      <button data-view="overview" class="active"><span class="ic">◈</span>Overview</button>
+      <button data-view="audits"><span class="ic">▤</span>Audits <span class="badge" id="navCount">55</span></button>
+      <button data-view="trackers"><span class="ic">◉</span>Trackers</button>
+      <button data-view="events"><span class="ic">↗</span>Events</button>
+      <button data-view="health"><span class="ic">♥</span>Data Health</button>
+      <button data-view="reports"><span class="ic">▦</span>Reports</button>
+      <button data-view="alerts"><span class="ic">⚠</span>Alerts <span class="badge" id="navCrit">64</span></button>
+      <div class="sec">Tool</div>
+      <button data-view="settings"><span class="ic">⚙</span>Settings</button>
+    </nav>
+    <div class="side-foot">
+      <button class="btn" onclick="setView('settings')">Order an audit — $25</button>
+      <div class="coming"><b>Live Tracker</b><br>Continuous monitoring of your pixels, events and consent state. <b>Coming soon.</b></div>
+    </div>
+  </aside>
+  <main class="main" id="view"></main>
+</div>
+
+<div class="modal-bg" id="modalBg">
+  <div class="modal">
+    <h3>Live re-runs are coming soon</h3>
+    <p>Automated re-audits need the Live Tracker scanner, which is still being built. Right now every report here is a real manual audit by Apex King Digital, dated and sourced.</p>
+    <p>Want a fresh audit of your site, or a re-check after you fix the findings? Book the $25 audit — card payment, website URL collected at checkout, report delivered by email.</p>
+    <div class="row">
+      <button class="btn ghost" onclick="closeModal()">Not now</button>
+      <button class="btn" onclick="setView('settings')">Order an audit — $25</button>
+    </div>
+  </div>
+</div>
+
+<script src="audits.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const PAY_URL = META.billingUrl;
+const GUIDE_API = 'https://dashboard.apexkingdigital.com/api/public/audits/';
+const ORDER_API = 'https://dashboard.apexkingdigital.com/api/public/audits/orders';
+/* Order an audit is the front door now: the form (Settings) collects the
+   website + store type, then the payment choice, then Stripe. */
+function orderBtn(){ return '<button class="btn" onclick="setView(\'settings\')">Order an audit — $25</button>'; }
+function submitOrder(){
+  const site = document.getElementById('ord-site').value.trim();
+  const type = document.getElementById('ord-type').value;
+  const email = document.getElementById('ord-email').value.trim();
+  const choice = (document.querySelector('input[name="ord-choice"]:checked') || {}).value || 'audit';
+  const msg = document.getElementById('ord-msg');
+  if (!site) { msg.textContent = 'Enter the website to audit.'; return; }
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { msg.textContent = 'Enter the email your report should go to.'; return; }
+  msg.textContent = 'Saving your order…';
+  fetch(ORDER_API, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ website: site, store_type: type, choice: choice, buyer_email: email }) })
+    .then(r => r.json().then(j => ({ ok: r.ok, j })))
+    .then(({ ok, j }) => {
+      if (!ok) { msg.textContent = (j && j.error) || 'Something went wrong — email hello@apexkingdigital.com and we will set it up.'; return; }
+      location.href = j.paymentUrl;
+    })
+    .catch(() => { msg.innerHTML = 'Could not reach checkout — <a href="' + PAY_URL + '" target="_blank" rel="noopener">pay for the $25 audit directly</a> or email <a href="mailto:hello@apexkingdigital.com">hello@apexkingdigital.com</a>.'; });
+}
+function initOrderForm(){
+  const bundle = document.querySelector('input[name="ord-choice"][value="bundle"]');
+  const note = document.getElementById('ord-bundle-note');
+  if (bundle && !META.bundleUrl) { bundle.disabled = true; if (note) note.style.display = ''; }
+}
+let current = AUDITS[0]; // worst score first
+/* Deep link from a delivered guide email: ?audit=<id>&guide=<token> opens
+   that site's report and unlocks its guide panel below. */
+const _params = new URLSearchParams(location.search);
+const _auditKey = _params.get('audit');
+if (_auditKey) { const _s = AUDITS.find(x => (x.id || x.domain) === _auditKey); if (_s) current = _s; }
+let view = 'overview';
+
+function labelPill(s){
+  if (s.label === 'Healthy') return '<span class="pill green">Healthy</span>';
+  if (s.label === 'Fair') return '<span class="pill amber">Fair</span>';
+  if (s.label === 'Needs Attention') return '<span class="pill red">Needs Attention</span>';
+  return '<span class="pill grey">Limited audit</span>';
+}
+function scoreColor(s){
+  if (s.score === null) return '#6b7280';
+  return s.score >= 85 ? 'var(--green)' : (s.score >= 70 ? 'var(--amber)' : 'var(--red)');
+}
+function gauge(s){
+  if (s.score === null) return '<div class="gauge"><svg width="150" height="150"><circle cx="75" cy="75" r="62" fill="none" stroke="#23272e" stroke-width="11"/><circle cx="75" cy="75" r="62" fill="none" stroke="#6b7280" stroke-width="11" stroke-dasharray="389.5" stroke-dashoffset="389.5" stroke-linecap="round"/></svg><div class="val"><div class="n">—</div><div class="d">no score</div></div></div>';
+  const C = 2 * Math.PI * 62, off = C * (1 - s.score / 100);
+  return '<div class="gauge"><svg width="150" height="150"><circle cx="75" cy="75" r="62" fill="none" stroke="#23272e" stroke-width="11"/><circle cx="75" cy="75" r="62" fill="none" stroke="' + scoreColor(s) + '" stroke-width="11" stroke-dasharray="' + C.toFixed(1) + '" stroke-dashoffset="' + off.toFixed(1) + '" stroke-linecap="round"/></svg><div class="val"><div class="n">' + s.score + '</div><div class="d">/ 100</div></div></div>';
+}
+function sevPill(sev){
+  if (sev === 'critical') return '<span class="pill red">Critical</span>';
+  if (sev === 'warning') return '<span class="pill amber">Warning</span>';
+  return '<span class="pill blue">Info</span>';
+}
+function statusCell(st){
+  if (st === 'Error') return '<span class="status err"><span class="dot r"></span>Error</span>';
+  if (st === 'Warning') return '<span class="status warn"><span class="dot a"></span>Warning</span>';
+  return '<span class="status ok"><span class="dot g"></span>Healthy</span>';
+}
+function openModal(){ $('#modalBg').classList.add('open'); }
+function closeModal(){ $('#modalBg').classList.remove('open'); }
+$('#modalBg').addEventListener('click', e => { if (e.target.id === 'modalBg') closeModal(); });
+
+function selectSite(key){
+  // Masked build keys on the opaque audit id (masked domains collide, e.g.
+  // bi******.com x3, so domain cannot be a key). Unmasked data has no id
+  // and falls back to the domain.
+  const s = AUDITS.find(x => (x.id || x.domain) === key);
+  if (s){ current = s; view = 'overview'; render(); window.scrollTo(0,0); }
+}
+function setView(v){ view = v; render(); window.scrollTo(0,0); }
+document.querySelectorAll('#nav button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('#nav button').forEach(x => x.classList.remove('active'));
+  b.classList.add('active');
+  setView(b.dataset.view);
+}));
+
+/* ---------- Views ---------- */
+function topbar(title, sub, actions){
+  return '<div class="topbar"><div><h1>' + esc(title) + '</h1><div class="client">' + sub + '</div></div>' +
+    '<div class="actions">' + (actions || '') + '</div></div>';
+}
+function footer(){
+  return '<div class="foot"><b>How scores work:</b> ' + esc(META.rubric) +
+    '<br><b>Source:</b> ' + esc(META.source) +
+    '<br>Built by <a href="https://apexkingdigital.com" target="_blank" rel="noopener">Apex King Digital</a> · Tracking Health Score · $25 per audit · Live Tracker coming soon.</div>';
+}
+function sitePicker(){
+  const sorted = [...AUDITS].sort((a, b) => String(a.domain || '').localeCompare(String(b.domain || '')));
+  const opts = sorted.map(s => '<option value="' + esc(s.id || s.domain) + '"' + (s === current ? ' selected' : '') + '>' + esc(s.domain) + (s.score === null ? ' — limited' : ' — ' + s.score + '/100') + '</option>').join('');
+  return '<select class="search" style="max-width:340px" onchange="selectSite(this.value)">' + opts + '</select>';
+}
+
+function viewOverview(){
+  const s = current;
+  const verdict = s.verdict ? '<p>' + esc(s.verdict) + '</p>' : '';
+  const thinNote = s.thin ? '<p><span class="pill grey">Limited audit</span> This report is based on network-level or legitimacy-only findings, not a full checkout audit — so it carries no score. The findings below are still verbatim from the audit.</p>' : '';
+  const rows = s.platformRows.map(r =>
+    '<tr><td><b>' + esc(r.name) + '</b></td><td>' + statusCell(r.status) + '</td><td>' + esc(r.issue) + '</td><td style="color:var(--muted)">' + esc(r.details) + '</td></tr>').join('');
+  const findings = s.issues.map(i =>
+    '<div class="finding"><div class="sev">' + sevPill(i.severity) + '</div><div><p>' + esc(i.text) + '</p></div></div>').join('');
+  return topbar('Multi-Platform Tracking Audit', esc(s.domain) + ' · audited ' + esc(s.date) + ' · ' + esc(s.audit_scope),
+      '<button class="btn ghost" onclick="openModal()">Re-run Audit</button><button class="btn" onclick="setView(\'settings\')">Get Audited — $25</button>') +
+    '<div style="margin-bottom:14px">' + sitePicker() + '</div>' +
+    '<div class="panel"><div class="scorewrap">' + gauge(s) +
+      '<div class="score-meta"><div class="lbl">TRACKING HEALTH SCORE ' + (s.score === null ? '—' : s.score + '/100') + ' ' + labelPill(s) + '</div>' +
+      verdict + thinNote +
+      '<p class="note">Score computed from this audit&rsquo;s findings — see methodology below. The audit itself assigned no numeric score.</p></div>' +
+    '</div></div>' +
+    '<div class="grid c4">' +
+      '<div class="stat"><div class="k">Platforms</div><div class="v">' + s.platforms + '</div><div class="s">distinct trackers installed</div></div>' +
+      '<div class="stat"><div class="k">Active Trackers</div><div class="v">' + s.activeTrackers + '</div><div class="s">tracker instances firing</div></div>' +
+      '<div class="stat"><div class="k">Critical Issues</div><div class="v" style="color:' + (s.counts.critical ? 'var(--red)' : 'var(--green)') + '">' + s.counts.critical + '</div><div class="s">' + s.counts.warning + ' warnings · ' + s.counts.info + ' info</div></div>' +
+      '<div class="stat"><div class="k">Duplicate Trackers</div><div class="v">' + s.duplicates + '</div><div class="s">platforms with 2+ IDs installed</div></div>' +
+    '</div>' +
+    '<div class="panel muted"><b style="color:var(--text)">Live Tracker — coming soon.</b> Continuous monitoring of your pixels, events and consent state. Until it ships, re-audits are manual — book the $25 audit for a fresh check after fixes.</div>' +
+    '<h2>Platform Tracking Status</h2>' +
+    '<div class="panel" style="padding:6px 12px"><table><thead><tr><th>Platform</th><th>Status</th><th>Issue / Insight</th><th>Details</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+    '<h2>Findings — verbatim from the audit</h2>' +
+    '<div class="panel">' + findings + '</div>' +
+    guidePanel() +
+    footer();
+}
+
+/* Fix guide — locked by default, unlocked by the link in the delivery
+   email (?audit=<id>&guide=<token>). The guide is $25, or $40 bundled
+   with the audit; payment links live in META (null until Stripe wires
+   them up — then the buttons appear). The guide text itself comes from
+   the dashboard API, token-gated, only after the guide is paid + ready
+   + sent. */
+function guidePanel(){
+  const token = _params.get('guide');
+  const auditId = _params.get('audit');
+  let h = '<h2>Fix guide — every finding, fixed</h2><div class="panel" id="guidePanel">';
+  if (token && auditId === current.id) {
+    h += '<p class="note">Loading your unlocked guide…</p>';
+  } else {
+    h += '<p style="color:var(--muted);font-size:14px">The fix guide walks through every finding above, one by one — what to change, where, and in what order — tailored to the site&rsquo;s platform. It&rsquo;s $25 on its own, or $40 bundled with the audit if you buy both upfront. You get the guide unlocked on this page and as a written doc by email.</p><p style="color:var(--muted);font-size:14px">If you&rsquo;d rather we fix it: $100/hr, $200 minimum, estimate first — email <a href="mailto:hello@apexkingdigital.com">hello@apexkingdigital.com</a>.</p>';
+    if (META.guideUrl) {
+      h += '<a class="btn" href="' + META.guideUrl + '" target="_blank" rel="noopener">Get the fix guide — $25</a>';
+      if (META.bundleUrl) h += ' <a class="btn ghost" href="' + META.bundleUrl + '" target="_blank" rel="noopener">Audit + guide — $40</a>';
+    } else {
+      h += '<p class="note">Fix-guide checkout is being wired up — email <a href="mailto:hello@apexkingdigital.com">hello@apexkingdigital.com</a> and we&rsquo;ll send you the link.</p>';
+    }
+  }
+  return h + '</div>';
+}
+function loadGuideUnlock(){
+  const token = _params.get('guide');
+  const auditId = _params.get('audit');
+  if (!token || !auditId || auditId !== current.id) return;
+  const panel = document.getElementById('guidePanel');
+  if (!panel) return;
+  fetch(GUIDE_API + encodeURIComponent(auditId) + '/guide?token=' + encodeURIComponent(token))
+    .then(r => r.ok ? r.json() : Promise.reject())
+    .then(j => { panel.innerHTML = '<p class="note">Unlocked for you — the written doc was also emailed to you.</p><pre style="white-space:pre-wrap;font-family:inherit;font-size:14px;line-height:1.6;color:var(--text)">' + esc(j.guide) + '</pre>'; })
+    .catch(() => { panel.innerHTML = '<p class="note">This guide link isn&rsquo;t valid, or the guide hasn&rsquo;t been delivered yet. If you paid for a guide, email <a href="mailto:hello@apexkingdigital.com">hello@apexkingdigital.com</a>.</p>'; });
+}
+
+function viewAudits(){
+  const rows = AUDITS.map(s =>
+    '<tr class="clickable" onclick="selectSite(\'' + esc(s.id || s.domain) + '\')"><td><b>' + esc(s.domain) + '</b>' + (s.thin ? ' <span class="pill grey">Limited</span>' : '') + '</td><td>' + esc(s.date) + '</td><td><b>' + (s.score === null ? '—' : s.score) + '</b></td><td>' + labelPill(s) + '</td><td>' + s.counts.critical + '</td><td>' + s.platforms + '</td><td>' + s.activeTrackers + '</td></tr>').join('');
+  return topbar('Audits', AUDITS.length + ' sites audited · Oct 9–25, 2026 · click a row to open its report',
+      orderBtn()) +
+    '<input class="search" id="q" placeholder="Search a domain…" oninput="filterAudits(this.value)">' +
+    '<div class="panel" style="padding:6px 12px"><table><thead><tr><th>Site</th><th>Audited</th><th>Score</th><th>Verdict</th><th>Critical</th><th>Platforms</th><th>Trackers</th></tr></thead><tbody id="auditRows">' + rows + '</tbody></table></div>' +
+    footer();
+}
+function filterAudits(q){
+  q = q.toLowerCase();
+  document.querySelectorAll('#auditRows tr').forEach(tr => { tr.style.display = tr.textContent.toLowerCase().includes(q) ? '' : 'none'; });
+}
+
+function normPlatforms(name){
+  const base = name.split(' (')[0];
+  if (/^all third-party/i.test(base) || /^third-party ad/i.test(base) || /^ad pixels$/i.test(base)) return [];
+  if (/google \/ /i.test(base)) return ['Google', 'Snapchat', 'Pinterest', 'Microsoft Clarity', 'Google Tag Manager'];
+  if (/google analytics\/gtm/i.test(base)) return ['Google Analytics', 'Google Tag Manager'];
+  const map = [
+    [/^x\/twitter ads/i, 'X Ads Pixel'], [/^x\/twitter/i, 'X Pixel'], [/^x conversion/i, 'X Pixel'],
+    [/^meta \(facebook\)/i, 'Meta Pixel'], [/^google ads purchase/i, 'Google Ads'],
+    [/^tiktok events api/i, 'TikTok Events API'], [/^first-party/i, 'First-party analytics'],
+    [/^server-side tracking relay/i, 'Railway tracking relay'], [/^tagada/i, 'Tagada'],
+    [/^support-chat/i, 'Support chat'],
+  ];
+  for (const [re, v] of map) if (re.test(base)) return [v];
+  return [base];
+}
+function trackerAgg(){
+  const agg = {};
+  AUDITS.forEach(s => {
+    s.trackers.forEach(t => {
+      normPlatforms(t.name).forEach(p => {
+        agg[p] = agg[p] || {name: p, installed: 0, error: 0, warning: 0, sites: []};
+        const sl = t.status.toLowerCase();
+        const installed = sl.startsWith('present') && !sl.includes('no script loaded');
+        if (!installed) return;
+        agg[p].installed++;
+        const row = s.platformRows.find(r => r.name === t.name);
+        if (row && row.status === 'Error') agg[p].error++;
+        else if (row && row.status === 'Warning') agg[p].warning++;
+        agg[p].sites.push(s.domain);
+      });
+    });
+  });
+  return Object.values(agg).sort((a, b) => b.installed - a.installed);
+}
+function viewTrackers(){
+  const agg = trackerAgg();
+  const rows = agg.map(a =>
+    '<tr><td><b>' + esc(a.name) + '</b></td><td>' + a.installed + '</td><td style="color:#f87171">' + a.error + '</td><td style="color:#fbbf24">' + a.warning + '</td><td style="color:var(--muted);font-size:12.5px">' + esc(a.sites.slice(0, 6).join(', ')) + (a.sites.length > 6 ? ' +' + (a.sites.length - 6) + ' more' : '') + '</td></tr>').join('');
+  return topbar('Trackers', 'Every tracker platform found across all ' + AUDITS.length + ' audited sites — installed count, and how often it fires with an error or warning status',
+      orderBtn()) +
+    '<div class="panel" style="padding:6px 12px"><table><thead><tr><th>Platform</th><th>Sites</th><th>Error</th><th>Warning</th><th>Found on</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+    footer();
+}
+
+function viewEvents(){
+  const re = /event|purchase|conversion|capi|duplicate/i;
+  const items = [];
+  AUDITS.forEach(s => s.issues.forEach(i => { if (re.test(i.text)) items.push({site: s, issue: i}); }));
+  const rows = items.map(x =>
+    '<div class="finding"><div class="sev">' + sevPill(x.issue.severity) + '</div><div><p><b>' + esc(x.site.domain) + '</b> — ' + esc(x.issue.text) + '</p></div></div>').join('');
+  return topbar('Events', items.length + ' event-related findings across the audited sites — missing purchase events, duplicate conversion tags, server-side event relays',
+      orderBtn()) +
+    '<div class="panel">' + rows + '</div>' +
+    '<div class="panel muted">Duplicate conversion tags show up here as duplicate tracker IDs — some sites in the sweep run 4 Meta Pixel IDs and 2 TikTok IDs. The per-site report counts them under <b style="color:var(--text)">Duplicate Trackers</b>.</div>' +
+    footer();
+}
+
+function viewHealth(){
+  const total = AUDITS.length, scored = AUDITS.filter(s => s.score !== null), thin = total - scored.length;
+  const noBanner = AUDITS.filter(s => s.issues.some(i => /no (cookie\/)?consent banner|no banner/i.test(i.text))).length;
+  const preConsent = AUDITS.filter(s => s.trackers.some(t => /pre-consent|first load|every page load|every load|unconditionally/i.test(t.status))).length;
+  const hardcoded = AUDITS.filter(s => s.issues.some(i => /marketingConsent|hardcoded/i.test(i.text))).length;
+  const crit = AUDITS.reduce((n, s) => n + s.counts.critical, 0);
+  const warn = AUDITS.reduce((n, s) => n + s.counts.warning, 0);
+  const labels = {Healthy: 0, Fair: 0, 'Needs Attention': 0};
+  scored.forEach(s => labels[s.label]++);
+  const agg = trackerAgg();
+  const top = agg.slice(0, 3).map(a => esc(a.name) + ' (' + a.installed + ' sites)').join(', ');
+  return topbar('Data Health', 'The sweep at a glance — what the audits found, in aggregate',
+      orderBtn()) +
+    '<div class="grid c4">' +
+      '<div class="stat"><div class="k">Sites audited</div><div class="v">' + total + '</div><div class="s">' + scored.length + ' scored · ' + thin + ' limited</div></div>' +
+      '<div class="stat"><div class="k">No consent banner</div><div class="v">' + noBanner + '</div><div class="s">' + Math.round(noBanner / total * 100) + '% of sites audited</div></div>' +
+      '<div class="stat"><div class="k">Trackers firing pre-consent</div><div class="v">' + preConsent + '</div><div class="s">' + Math.round(preConsent / total * 100) + '% of sites audited</div></div>' +
+      '<div class="stat"><div class="k">Hardcoded consent</div><div class="v">' + hardcoded + '</div><div class="s">sites with marketingConsent hardcoded</div></div>' +
+    '</div>' +
+    '<div class="grid c2">' +
+      '<div class="panel"><h3>Score distribution</h3><p>Healthy (85+): <b>' + labels.Healthy + '</b> · Fair (70–84): <b>' + labels.Fair + '</b> · Needs Attention (&lt;70): <b>' + labels['Needs Attention'] + '</b> · Limited audit (no score): <b>' + thin + '</b></p><p class="note">Total findings: ' + crit + ' critical, ' + warn + ' warnings.</p></div>' +
+      '<div class="panel"><h3>Most common trackers</h3><p>' + top + '</p><p class="note">Full breakdown on the Trackers tab.</p></div>' +
+    '</div>' +
+    '<div class="panel"><h3>Recurring patterns</h3><p>· Hardcoded <kbd>marketingConsent:true</kbd> at checkout — seen on several sites in the sweep.</p><p>· Consent banners that are inert or theater — inert loaders and CookieYes defaults that assume consent.</p><p>· EU-only consent defaults leaving US visitors fully tracked — seen across several vendors.</p><p>· Policy vs. reality contradictions — an X pixel present while the privacy policy claims no third-party trackers; a nonexistent banner; email-to-Snap.</p></div>' +
+    footer();
+}
+
+function viewReports(){
+  const byDate = {};
+  AUDITS.forEach(s => { (byDate[s.date] = byDate[s.date] || []).push(s); });
+  const dates = Object.keys(byDate).sort().reverse();
+  const blocks = dates.map(d => {
+    const sites = byDate[d];
+    const scored = sites.filter(s => s.score !== null).length;
+    return '<div class="panel"><h3>' + esc(d) + ' — ' + sites.length + ' site' + (sites.length > 1 ? 's' : '') + ' (' + scored + ' scored)</h3>' +
+      '<p style="font-size:13px;color:var(--muted)">' + sites.map(s => '<a href="#" onclick="selectSite(\'' + esc(s.id || s.domain) + '\');return false">' + esc(s.domain) + '</a>').join(' · ') + '</p></div>';
+  }).join('');
+  return topbar('Reports', 'Audit batches by date — every report in this tool is one of these dated audits',
+      orderBtn()) + blocks + footer();
+}
+
+function viewAlerts(){
+  const items = [];
+  AUDITS.forEach(s => s.issues.forEach(i => { if (i.severity === 'critical') items.push({site: s, issue: i}); }));
+  const rows = items.map(x =>
+    '<div class="finding"><div class="sev">' + sevPill('critical') + '</div><div><p><b>' + esc(x.site.domain) + '</b> <span style="color:var(--faint)">· ' + esc(x.site.date) + '</span> — ' + esc(x.issue.text) + '</p></div></div>').join('');
+  return topbar('Alerts', items.length + ' critical findings across all audited sites',
+      orderBtn()) +
+    '<input class="search" placeholder="Filter alerts…" oninput="document.querySelectorAll(\'#alertList .finding\').forEach(f=>{f.style.display=f.textContent.toLowerCase().includes(this.value.toLowerCase())?\'\':\'none\'})">' +
+    '<div class="panel" id="alertList">' + rows + '</div>' + footer();
+}
+
+function viewSettings(){
+  return topbar('Settings', 'About this tool, how scores work, and billing') +
+    '<div class="grid c2">' +
+      '<div class="panel"><h3>About</h3><p style="color:var(--muted);font-size:13.5px">Tracking Health Score is Apex King Digital&rsquo;s website tracking audit, as a visual report. Every site listed here was audited by hand — checkout, consent, trackers and email — between Oct 9 and Oct 25, 2026. Findings are quoted verbatim from the audits. Each site&rsquo;s public privacy/terms pages were also scanned automatically (Oct 30) for named vendors in its legal copy — the stack-disclosure check; those findings are machine-generated and shown in each site&rsquo;s issue list. Nothing else here is invented or auto-generated.</p><p class="note">Helix King Labs&rsquo; own audit is private and is not listed.</p></div>' +
+      '<div class="panel"><h3>Scoring rubric</h3><p style="color:var(--muted);font-size:13.5px">' + esc(META.rubric) + '</p><p class="note">The audits themselves assigned no numeric score — the 67/100 in the original mockup was a placeholder. Scores here are computed from the findings so sites can be compared.</p></div>' +
+      '<div class="panel"><h3>Order an audit</h3><p style="color:var(--muted);font-size:13.5px">Tell us the site and what kind of store it is, pick audit or bundle, then pay at Stripe. Your report lands by email after payment, and the site gets listed here (masked) with its own score page.</p>' +
+      '<label style="display:block;font-size:13px;color:var(--muted);margin:10px 0 4px">Website *</label><input id="ord-site" class="search" placeholder="example.com" autocomplete="off">' +
+      '<label style="display:block;font-size:13px;color:var(--muted);margin:10px 0 4px">What kind of store is it? *</label><select id="ord-type" class="search"><option value="shopify">Shopify</option><option value="woocommerce">WooCommerce (WordPress)</option><option value="wix">Wix</option><option value="squarespace">Squarespace</option><option value="custom">Custom / other</option><option value="unknown">Not sure</option></select>' +
+      '<label style="display:block;font-size:13px;color:var(--muted);margin:10px 0 4px">Email (for your report) *</label><input id="ord-email" class="search" placeholder="you@example.com" autocomplete="off">' +
+      '<div style="margin:12px 0"><label style="display:block;font-size:14px;margin:6px 0"><input type="radio" name="ord-choice" value="audit" checked> Audit alone — $25</label><label style="display:block;font-size:14px;margin:6px 0"><input type="radio" name="ord-choice" value="bundle"> Audit + fix guide — $40 (save $10)</label></div>' +
+      '<p id="ord-bundle-note" class="note" style="display:none">Bundle checkout is still being set up — the audit alone is ready now.</p>' +
+      '<button class="btn" onclick="submitOrder()">Continue to payment →</button><p id="ord-msg" class="note"></p>' +
+      '<p class="note">After the audit lands, the $25 fix guide is offered by email — and if you&rsquo;d rather we fix it, that&rsquo;s $100/hr, $200 minimum, estimate first.</p></div>' +
+      '<div class="panel"><h3>Live Tracker — coming soon</h3><p style="color:var(--muted);font-size:13.5px">Continuous monitoring of your pixels, events and consent state, with alerts when something breaks or a new tracker appears. Not live yet — this tool currently shows dated manual audits only.</p></div>' +
+    '</div>' + footer();
+}
+
+function paidBanner(){
+  let q;
+  try { q = new URLSearchParams(location.search); } catch(e){ return ''; }
+  if (q.get('paid') === '1') {
+    return '<div class="panel" style="border-left:4px solid #2e7d32;margin-bottom:14px"><b>Payment received.</b> ' +
+      'Your audit is queued — the report lands by email, usually within 2 business days. No need to do anything else.</div>';
+  }
+  if (q.get('cancelled') === '1') {
+    return '<div class="panel" style="border-left:4px solid #c62828;margin-bottom:14px"><b>Payment cancelled.</b> ' +
+      'Nothing was charged. <a href="#" onclick="setView(\'settings\');return false">Try again</a> whenever you\'re ready.</div>';
+  }
+  return '';
+}
+function render(){
+  const v = $('#view');
+  if (view === 'overview') v.innerHTML = paidBanner() + viewOverview();
+  else if (view === 'audits') v.innerHTML = viewAudits();
+  else if (view === 'trackers') v.innerHTML = viewTrackers();
+  else if (view === 'events') v.innerHTML = viewEvents();
+  else if (view === 'health') v.innerHTML = viewHealth();
+  else if (view === 'reports') v.innerHTML = viewReports();
+  else if (view === 'alerts') v.innerHTML = viewAlerts();
+  else if (view === 'settings') v.innerHTML = viewSettings();
+  loadGuideUnlock();
+  initOrderForm();
+}
+$('#navCount').textContent = AUDITS.length;
+$('#navCrit').textContent = AUDITS.reduce((n, s) => n + s.counts.critical, 0);
+render();
+</script>
+</body>
+</html>

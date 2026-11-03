@@ -232,6 +232,10 @@ pre.report{white-space:pre-wrap;word-break:break-word;background:#0e0e11;border:
     <button class="back" data-nav="home" type="button">← All pieces</button>
     <h2>Audits — Tracking Health Score</h2>
     <p class="sub">Full audit data, behind your login. The public tool shows masked domains only. Tap an audit to see its findings.</p>
+    <div style="margin-bottom:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button class="btn" id="dl-public-site" type="button">Download public site</button>
+      <span class="note" id="dl-public-msg" style="margin:0">Masked build from live data — drop the zip on Netlify to publish.</span>
+    </div>
     <div id="audit-queues" style="margin-bottom:14px"></div>
     <input class="search" id="audit-search" type="text" placeholder="🔍 Search audits…" autocomplete="off" />
     <details style="margin-bottom:14px">
@@ -986,6 +990,24 @@ document.getElementById('ed-save').addEventListener('click', function(){
 });
 
 /* ---------- audits (Phase 2) ---------- */
+document.getElementById('dl-public-site').addEventListener('click', async () => {
+  const msg = document.getElementById('dl-public-msg');
+  msg.textContent = 'Building masked site…';
+  try {
+    const r = await fetch('/api/admin/audits/public-site.zip', { credentials: 'same-origin' });
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      msg.textContent = 'Build failed: ' + (j.failures ? j.failures.join('; ') : (j.error || r.status));
+      return;
+    }
+    const blob = await r.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'tracking-health-score-public.zip';
+    document.body.appendChild(a); a.click(); a.remove();
+    msg.textContent = 'Downloaded — drop the zip on the Netlify deploys page to publish.';
+  } catch (e) { msg.textContent = 'Download failed: ' + e.message; }
+});
 var audits = [];
 function auditScoreChip(a){
   if (a.score === null) return a.label === 'Pending' ? '<span class="chip draft">pending</span>' : '<span class="chip draft">limited</span>';
