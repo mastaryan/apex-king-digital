@@ -11,10 +11,12 @@
 //   guide is sent. Send actions are gated on a recorded purchase; test
 //   sends go to Ryan only.
 //
-// Payment-link purchases are recorded manually in the dashboard (Stripe
-// notifies Ryan; there is no webhook) — the act of recording one IS the
-// payment confirmation. Fix invoices are real Stripe invoices created
-// through the same machinery as the renewal invoices (invoices.js).
+// True store (Ryan 2026-11-03): the order form creates a per-order Stripe
+// Checkout Session; the webhook (/api/public/audits/stripe-webhook) settles
+// payment automatically — marks the order paid, records the purchase,
+// creates the pending audit shell, emails Ryan + the buyer. Manual purchase
+// recording stays for edge cases. Fix invoices are real Stripe invoices
+// created through the same machinery as the renewal invoices (invoices.js).
 //
 // This module also carries the re-audit paths (Ryan 2026-10-27): findings
 // can be marked fixed (note + date kept as history), scores recompute
@@ -25,7 +27,7 @@
 const crypto = require("crypto");
 const { getPool, pgEnabled } = require("./pg");
 const { PRICES, LINKS, unlockAfterPurchase, fixAmountCents } = require("./billing");
-const { scoreFor } = require("./audits");
+const { scoreFor, maskDomain } = require("./audits");
 const { buildGuideDraft, STORE_TYPE_DISPLAY, STORE_TYPES } = require("./guide-template");
 const {
   stripeCall, findOrCreateCustomer, sendMail, fetchBuffer,
@@ -237,6 +239,80 @@ async function refreshFixQuote(pool, quote) {
     }
   } catch (e) { /* keep stored state */ }
   return quote;
+}
+
+// ---------- true-store helpers (Ryan 2026-11-03) ----------
+// A paid order ALWAYS creates a brand-new audit row, even when the domain
+// is already listed. The buyer is never told the site was audited before —
+// to them it's a fresh audit. The masked export shows the latest completed
+// audit per domain; older ones stay visible in the dashboard as history.
+async function createPendingShell(pool, domain, storeType) {
+  const { rows: mx } = await pool.query(
+    "SELECT COALESCE(MAX(CAST(SUBSTRING(id FROM 2) AS INTEGER)), 0) AS m FROM audits WHERE id ~ '^a[0-9]+$'");
+  const id = "a" + String((mx[0].m || 0) + 1).padStart(3, "0");
+  const today = new Date().toISOString().slice(0, 10);
+  // Pending shell: no findings yet, so no score — it must NOT reach the
+  // public masked export (which would score an empty audit 100).
+  await pool.query(
+    `INSERT INTO audits (id, domain, masked_domain, audit_date, audit_scope, verdict, is_thin, score, label, store_type)
+     VALUES ($1,$2,$3,$4,'tracking, consent',NULL,FALSE,NULL,'Pending',$5)`,
+    [id, domain, maskDomain(domain), today, storeType]);
+  return id;
+}
+
+function verifyStripeSig(raw, sigHeader, secret) {
+  if (!raw || !sigHeader || !secret) return false;
+  const parts = {};
+  for (const piece of String(sigHeader).split(",")) {
+    const i = piece.indexOf("=");
+    if (i > 0) parts[piece.slice(0, i).trim()] = piece.slice(i + 1).trim();
+  }
+  if (!parts.t || !parts.v1) return false;
+  if (Math.abs(Date.now() / 1000 - Number(parts.t)) > 300) return false;
+  const expect = crypto.createHmac("sha256", secret).update(parts.t + "." + raw.toString("utf8")).digest("hex");
+  const a = Buffer.from(parts.v1), b = Buffer.from(expect);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+// Webhook settlement: payment -> order paid -> pending audit -> notify.
+// Idempotent: a retried event for an already-paid order is a no-op.
+async function settleAuditOrder(pool, orderId, pay) {
+  const { rows } = await pool.query("SELECT * FROM audit_orders WHERE id = $1", [orderId]);
+  if (!rows.length) return { ok: false, reason: "no_order" };
+  const o = rows[0];
+  if (o.status === "paid" || o.status === "audited") return { ok: true, duplicate: true };
+  if (o.status === "cancelled") return { ok: false, reason: "cancelled" };
+  const auditId = await createPendingShell(pool, o.domain, o.store_type);
+  const buyerEmail = cleanEmail(pay.buyerEmail) || o.buyer_email;
+  const amount = Number(pay.amountCents) || PRICES[o.choice].amountCents;
+  await pool.query(
+    `INSERT INTO audit_purchases (audit_id, kind, amount_cents, stripe_ref, buyer_email, is_test, note)
+     VALUES ($1,$2,$3,$4,$5,FALSE,$6)`,
+    [auditId, o.choice, amount, String(pay.sessionId || "").slice(0, 120) || null,
+     buyerEmail || null, "webhook auto-settle"]);
+  const next = unlockAfterPurchase("listed", o.choice);
+  if (next) await pool.query("UPDATE audits SET unlock_status = $1 WHERE id = $2", [next, auditId]);
+  await pool.query(
+    "UPDATE audit_orders SET status = 'paid', audit_id = $1, stripe_session_id = $2 WHERE id = $3",
+    [auditId, pay.sessionId || null, o.id]);
+  await sendMail({
+    to: COPY_EMAIL, from: FROM,
+    subject: "Audit paid — " + o.domain + " (" + o.choice + ")",
+    text: "Payment settled via Stripe webhook.\n\nWebsite: " + o.domain +
+      "\nChoice: " + o.choice + " — $" + (amount / 100) +
+      "\nBuyer: " + (buyerEmail || "(no email)") +
+      "\nOrder: " + o.id + "\nAudit: " + auditId + " (pending shell — run the audit, add findings, then send the report)\n",
+  });
+  if (buyerEmail && isEmail(buyerEmail)) {
+    await sendMail({
+      to: buyerEmail, from: FROM,
+      subject: "Your Tracking Health Score audit is queued",
+      text: "Thanks — payment received for the Website Tracking Audit of " + o.domain + ".\n\n" +
+        "What's next: we run the audit by hand (trackers, consent, leaks), then your report arrives by email. " +
+        "Most reports go out within 2 business days.\n\n— Apex King Digital · hello@apexkingdigital.com",
+    });
+  }
+  return { ok: true, auditId };
 }
 
 function mountAuditBilling(app, authRequired) {
@@ -671,8 +747,8 @@ function mountAuditBilling(app, authRequired) {
       if (needPg(req, res)) return;
       const pool = getPool();
       const { rows: audits } = await pool.query(
-        `SELECT id, domain, audit_date, audit_scope, verdict FROM audits
-         WHERE domain NOT LIKE '%example%' ORDER BY domain`);
+        `SELECT DISTINCT ON (domain) id, domain, audit_date, audit_scope, verdict FROM audits
+         WHERE domain NOT LIKE '%example%' ORDER BY domain, audit_date DESC NULLS LAST, id DESC`);
       const out = [];
       for (const a of audits) {
         const { rows: fr } = await pool.query(
@@ -756,12 +832,6 @@ function mountAuditBilling(app, authRequired) {
       if (!["audit", "bundle"].includes(choice)) {
         return res.status(400).json({ error: "pick audit ($25) or bundle ($40)" });
       }
-      const paymentUrl = LINKS[choice];
-      if (!paymentUrl) {
-        return res.status(400).json({ error: choice === "bundle"
-          ? "bundle checkout is still being set up — pick the $25 audit for now, or email hello@apexkingdigital.com and we'll bundle it for you"
-          : "audit checkout is unavailable right now — email hello@apexkingdigital.com" });
-      }
       const buyerEmail = cleanEmail(b.buyer_email);
       if (buyerEmail && !isEmail(buyerEmail)) return res.status(400).json({ error: "that email address doesn't look right" });
       const { rows } = await pool.query(
@@ -769,6 +839,39 @@ function mountAuditBilling(app, authRequired) {
          VALUES ($1,$2,$3,$4,$5) RETURNING id, domain, store_type, choice, created_at`,
         [String(b.website).slice(0, 300), domain, storeType, choice, buyerEmail || null]);
       const o = rows[0];
+      // Per-order Stripe Checkout Session (true store, Ryan 2026-11-03).
+      // metadata ties the payment back to this order in the webhook.
+      // Falls back to the static payment link if Stripe isn't configured.
+      let paymentUrl = LINKS[choice] || null;
+      if (process.env.STRIPE_SECRET_KEY) {
+        try {
+          const session = await stripeCall("POST", "/v1/checkout/sessions", {
+            mode: "payment",
+            line_items: [{
+              quantity: 1,
+              price_data: {
+                currency: "usd",
+                unit_amount: PRICES[choice].amountCents,
+                product_data: { name: PRICES[choice].label },
+              },
+            }],
+            metadata: { kind: "tracking_audit", audit_order_id: o.id, choice },
+            payment_intent_data: { metadata: { kind: "tracking_audit", audit_order_id: o.id } },
+            customer_email: buyerEmail || undefined,
+            success_url: PUBLIC_TOOL_URL + "/?order=" + encodeURIComponent(o.id) + "&paid=1",
+            cancel_url: PUBLIC_TOOL_URL + "/?order=" + encodeURIComponent(o.id) + "&cancelled=1",
+          });
+          paymentUrl = session.url;
+          await pool.query("UPDATE audit_orders SET stripe_session_id = $1 WHERE id = $2", [session.id, o.id]);
+        } catch (e) {
+          console.error("audit checkout session", e.message);
+        }
+      }
+      if (!paymentUrl) {
+        return res.status(400).json({ error: choice === "bundle"
+          ? "bundle checkout is still being set up — pick the $25 audit for now, or email hello@apexkingdigital.com and we'll bundle it for you"
+          : "audit checkout is unavailable right now — email hello@apexkingdigital.com" });
+      }
       await sendMail({
         to: COPY_EMAIL,
         subject: "New tracking audit order — " + domain + " (" + choice + ", " + (STORE_TYPE_DISPLAY[storeType] || storeType) + ")",
@@ -779,10 +882,68 @@ function mountAuditBilling(app, authRequired) {
           "Choice: " + choice + " — $" + (PRICES[choice].amountCents / 100) + "\n" +
           "Buyer email: " + (buyerEmail || "(not given — Stripe checkout collects it)") + "\n" +
           "Order: " + o.id + " · " + o.created_at + "\n\n" +
-          "Next: when the Stripe payment notification arrives, match it to this order in the dashboard (Audits > Incoming orders), create the audit, and record the purchase on it. The report goes out only after payment is recorded.\n",
+          "The buyer pays at a per-order Stripe Checkout link; the webhook auto-settles " +
+          "payment, creates the pending audit, and emails you. Run the audit, add findings, " +
+          "then send the report from the dashboard.\n",
       });
       res.json({ ok: true, orderId: o.id, domain, paymentUrl });
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
+  });
+
+  // ---------- Stripe webhook: payment settles the order automatically ----------
+  // The buyer pays at their per-order Checkout link; Stripe calls here.
+  // We match metadata.audit_order_id -> order, mark it paid, record the
+  // purchase, create the pending audit shell, and email Ryan + the buyer.
+  // Ryan's only job left: run the audit, add findings, send the report.
+  app.post("/api/public/audits/stripe-webhook", async (req, res) => {
+    const secret = process.env.STRIPE_WEBHOOK_SECRET;
+    if (!secret) return res.status(503).json({ error: "webhook_secret_missing" });
+    if (!verifyStripeSig(req.rawBody, req.headers["stripe-signature"], secret)) {
+      return res.status(400).json({ error: "bad_signature" });
+    }
+    let event;
+    try { event = JSON.parse(req.rawBody.toString("utf8")); }
+    catch { return res.status(400).json({ error: "bad_json" }); }
+    res.json({ received: true });
+    try {
+      if (!pgEnabled()) return;
+      const o = event.data && event.data.object;
+      if (!o) return;
+      const md = o.metadata || {};
+      if (md.kind !== "tracking_audit" || !md.audit_order_id) return;
+      const paid = (event.type === "checkout.session.completed" && o.payment_status === "paid") ||
+        event.type === "checkout.session.async_payment_succeeded";
+      if (!paid) return;
+      const r = await settleAuditOrder(getPool(), md.audit_order_id, {
+        sessionId: o.id,
+        amountCents: o.amount_total,
+        buyerEmail: (o.customer_details && o.customer_details.email) || o.customer_email || null,
+      });
+      console.log("audit webhook settle", md.audit_order_id, JSON.stringify(r));
+    } catch (e) { console.error("audit webhook settle", e.message); }
+  });
+
+  // ---------- "am I listed?" lookup (public, masked) ----------
+  // The vendor types their domain; we answer listed/not + audit date.
+  // Nothing about anyone else's site leaks — the domain they typed is the
+  // only one we ever name back.
+  app.get("/api/public/audits/lookup", async (req, res) => {
+    res.setHeader("Access-Control-Allow-Origin", PUBLIC_TOOL_URL);
+    try {
+      if (!pgEnabled()) return res.status(503).json({ error: "lookup unavailable" });
+      const domain = normalizeDomain(req.query.domain);
+      if (!domain) return res.json({ listed: false });
+      const { rows } = await getPool().query(
+        `SELECT masked_domain, audit_date FROM audits
+         WHERE domain = $1 AND label != 'Pending' ORDER BY audit_date DESC NULLS LAST LIMIT 1`,
+        [domain]);
+      if (!rows.length) return res.json({ listed: false });
+      res.json({
+        listed: true,
+        masked: rows[0].masked_domain,
+        auditDate: rows[0].audit_date ? rows[0].audit_date.toISOString().slice(0, 10) : null,
+      });
+    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 200) }); }
   });
 
   app.get("/api/audits/orders", authRequired, async (req, res) => {
@@ -806,23 +967,9 @@ function mountAuditBilling(app, authRequired) {
       const o = rows[0];
       if (o.status === "cancelled") return res.status(400).json({ error: "order was cancelled" });
       if (o.audit_id) return res.json({ ok: true, auditId: o.audit_id, existing: true });
-      const { rows: ex } = await pool.query("SELECT id FROM audits WHERE domain = $1", [o.domain]);
-      if (ex.length) {
-        // Already listed (e.g. a re-order for a sampled site): link it.
-        await pool.query("UPDATE audit_orders SET audit_id = $1, status = 'audited' WHERE id = $2", [ex[0].id, o.id]);
-        return res.json({ ok: true, auditId: ex[0].id, existing: true });
-      }
-      const { rows: mx } = await pool.query(
-        "SELECT COALESCE(MAX(CAST(SUBSTRING(id FROM 2) AS INTEGER)), 0) AS m FROM audits WHERE id ~ '^a[0-9]+$'");
-      const id = "a" + String((mx[0].m || 0) + 1).padStart(3, "0");
-      const { maskDomain } = require("./audits");
-      const today = new Date().toISOString().slice(0, 10);
-      // Pending shell: no findings yet, so no score — it must NOT reach
-      // the public masked export (which would score an empty audit 100).
-      await pool.query(
-        `INSERT INTO audits (id, domain, masked_domain, audit_date, audit_scope, verdict, is_thin, score, label, store_type)
-         VALUES ($1,$2,$3,$4,'tracking, consent',NULL,FALSE,NULL,'Pending',$5)`,
-        [id, o.domain, maskDomain(o.domain), today, o.store_type]);
+      // Ryan 2026-11-03: a re-order is ALWAYS a new audit, even when the
+      // domain is already listed. The buyer is never told it was listed.
+      const id = await createPendingShell(pool, o.domain, o.store_type);
       await pool.query("UPDATE audit_orders SET audit_id = $1, status = 'audited' WHERE id = $2", [id, o.id]);
       res.json({ ok: true, auditId: id, existing: false });
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }

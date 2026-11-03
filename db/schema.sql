@@ -122,7 +122,9 @@ CREATE TABLE IF NOT EXISTS audits (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE UNIQUE INDEX IF NOT EXISTS audits_domain_unique ON audits (domain);
+-- 2026-11-03: re-audits are separate rows (unique domain retired)
+DROP INDEX IF EXISTS audits_domain_unique;
+CREATE INDEX IF NOT EXISTS audits_domain_idx ON audits (domain);
 CREATE INDEX IF NOT EXISTS audits_score_idx ON audits (score);
 
 CREATE TABLE IF NOT EXISTS audit_findings (
@@ -274,6 +276,11 @@ CREATE TABLE IF NOT EXISTS audit_orders (
 );
 CREATE INDEX IF NOT EXISTS audit_orders_domain_idx ON audit_orders (domain);
 CREATE INDEX IF NOT EXISTS audit_orders_status_idx ON audit_orders (status);
+-- 2026-11-03 (true store): per-order Stripe Checkout Sessions + webhook auto-settle
+ALTER TABLE audit_orders ADD COLUMN IF NOT EXISTS stripe_session_id TEXT;
+ALTER TABLE audit_orders DROP CONSTRAINT IF EXISTS audit_orders_status_check;
+ALTER TABLE audit_orders ADD CONSTRAINT audit_orders_status_check
+  CHECK (status IN ('ordered','paid','audited','cancelled'));
 
 -- ---------- Card home (2026-10-28, Ryan: "Let's build it") ----------
 -- One card per backend piece; each section below is a small table the
