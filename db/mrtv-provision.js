@@ -288,6 +288,31 @@ function mountMrtvProvision(app, authRequired) {
     res.json(r);
   });
 
+  // DIAG ONLY: verify the bot token (getMe) and check whether the configured
+  // chat has ever talked to the bot (getUpdates). No secrets are returned.
+  app.get("/api/mrtv/telegram/diag", authRequired, async (req, res) => {
+    const token = process.env.TELEGRAM_BOT_TOKEN || "";
+    const chatId = String(process.env.TELEGRAM_CHAT_ID || "");
+    if (!token) return res.json({ ok: false, error: "TELEGRAM_BOT_TOKEN not set" });
+    try {
+      const me = await (await fetch("https://api.telegram.org/bot" + token + "/getMe")).json();
+      const up = await (await fetch("https://api.telegram.org/bot" + token + "/getUpdates?limit=20")).json();
+      const chats = [];
+      for (const u of ((up && up.result) || [])) {
+        const c = (u.message && u.message.chat) || (u.my_chat_member && u.my_chat_member.chat) || null;
+        if (c && chats.indexOf(c.id) < 0) chats.push(c.id);
+      }
+      res.json({
+        ok: true,
+        bot: me && me.result ? { username: me.result.username, id: me.result.id } : null,
+        tokenValid: !!(me && me.ok),
+        chatConfigured: chatId ? "(set)" : "(missing)",
+        chatSeen: chatId ? chats.indexOf(Number(chatId)) >= 0 : false,
+        recentChats: chats,
+      });
+    } catch (e) { res.json({ ok: false, error: String(e.message || e).slice(0, 160) }); }
+  });
+
   // TEST ONLY: send a filled login email to an arbitrary address via the
   // normal template + mailer. Creates no panel line and no customer record.
   app.post("/api/mrtv/email/test-send", authRequired, async (req, res) => {
