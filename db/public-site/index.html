@@ -158,6 +158,7 @@ const ORDER_API = 'https://dashboard.apexkingdigital.com/api/public/audits/order
 /* Order an audit is the front door now: the form (Settings) collects the
    website + store type, then the payment choice, then Stripe. */
 function orderBtn(){ return '<button class="btn" onclick="setView(\'settings\')">Order an audit — $25</button>'; }
+var pendingOrder = null;
 function submitOrder(){
   const site = document.getElementById('ord-site').value.trim();
   const type = document.getElementById('ord-type').value;
@@ -172,9 +173,31 @@ function submitOrder(){
     .then(r => r.json().then(j => ({ ok: r.ok, j })))
     .then(({ ok, j }) => {
       if (!ok) { msg.textContent = (j && j.error) || 'Something went wrong — email hello@apexkingdigital.com and we will set it up.'; return; }
-      location.href = j.paymentUrl;
+      pendingOrder = { id: j.orderId, paymentUrl: j.paymentUrl };
+      showPayChoice();
     })
-    .catch(() => { msg.innerHTML = 'Could not reach checkout — <a href="' + PAY_URL + '" target="_blank" rel="noopener">pay for the $25 audit directly</a> or email <a href="mailto:hello@apexkingdigital.com">hello@apexkingdigital.com</a>.'; });
+    .catch(() => { msg.innerHTML = 'Could not reach checkout — email <a href="mailto:hello@apexkingdigital.com">hello@apexkingdigital.com</a> and we will set it up.'; });
+}
+function showPayChoice(){
+  const msg = document.getElementById('ord-msg');
+  msg.innerHTML = '<div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap">' +
+    '<button class="btn" onclick="payWithCard()">Pay with card</button>' +
+    '<button class="btn btn-ghost" onclick="payWithCrypto()">Pay with crypto</button></div>' +
+    '<div id="crypto-box" style="margin-top:12px"></div>';
+}
+function payWithCard(){ if (pendingOrder) location.href = pendingOrder.paymentUrl; }
+function payWithCrypto(){
+  const box = document.getElementById('crypto-box');
+  if (!pendingOrder) return;
+  box.innerHTML = '<p class="note">Creating your crypto invoice…</p>';
+  fetch(ORDER_API + '/' + encodeURIComponent(pendingOrder.id) + '/crypto-invoice', { method: 'POST' })
+    .then(r => r.json().then(j => ({ ok: r.ok, j })))
+    .then(({ ok, j }) => {
+      if (!ok) { box.innerHTML = '<p class="note">' + ((j && j.error) || 'Crypto is not available right now — use card instead.') + '</p>'; return; }
+      box.innerHTML = '<iframe src="' + j.invoice_url + '" style="width:100%;height:640px;border:1px solid var(--border);border-radius:10px" title="Crypto payment"></iframe>' +
+        '<p class="note">Pay in the window above. Your report lands by email after the payment confirms.</p>';
+    })
+    .catch(() => { box.innerHTML = '<p class="note">Could not reach the crypto checkout — use card instead.</p>'; });
 }
 function initOrderForm(){
   const bundle = document.querySelector('input[name="ord-choice"][value="bundle"]');

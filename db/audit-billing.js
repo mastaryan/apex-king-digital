@@ -928,6 +928,94 @@ function mountAuditBilling(app, authRequired) {
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
 
+  // ---------- NOWPayments: crypto invoices (embedded) ----------
+  // Ryan 2026-11-03: crypto option alongside card. Two invoice amounts
+  // ($25 audit, $40 bundle), embedded via iframe so the buyer never
+  // leaves the site. IPN settles through the same settleAuditOrder.
+  const NOWP_KEY = process.env.NOWPAYMENTS_API_KEY || "";
+  const NOWP_IPN_SECRET = process.env.NOWPAYMENTS_IPN_SECRET || "";
+
+  function nowpRequest(path, body) {
+    return new Promise((resolve) => {
+      const data = JSON.stringify(body);
+      const req = https.request({
+        hostname: "api.nowpayments.io", path, method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(data),
+          "x-api-key": NOWP_KEY,
+        },
+      }, (res) => {
+        let raw = "";
+        res.on("data", (c) => { raw += c; });
+        res.on("end", () => {
+          try { resolve({ status: res.statusCode, body: JSON.parse(raw) }); }
+          catch (e) { resolve({ status: res.statusCode, body: null, raw }); }
+        });
+      });
+      req.on("error", (e) => resolve({ status: 0, body: null, error: String(e.message || e).slice(0, 200) }));
+      req.setTimeout(20000, () => { req.destroy(new Error("timeout")); resolve({ status: 0, body: null, error: "timeout" }); });
+      req.end(data);
+    });
+  }
+
+  // Create a NOWPayments invoice for an existing order. Returns the
+  // invoice_url to embed in an iframe on the public tool.
+  app.post("/api/public/audits/orders/:id/crypto-invoice", async (req, res) => {
+    try {
+      if (!NOWP_KEY) return res.status(503).json({ error: "crypto payments not configured yet" });
+      const { rows } = await getPool().query("SELECT * FROM audit_orders WHERE id = $1", [req.params.id]);
+      if (!rows.length) return res.status(404).json({ error: "order not found" });
+      const o = rows[0];
+      if (o.status === "paid" || o.status === "audited")
+        return res.status(400).json({ error: "order already paid" });
+      const amount = (PRICES[o.choice].amountCents / 100).toFixed(2);
+      const base = (process.env.PUBLIC_BASE_URL || "https://dashboard.apexkingdigital.com").replace(/\/$/, "");
+      const r = await nowpRequest("/v1/invoice", {
+        price_amount: Number(amount),
+        price_currency: "usd",
+        order_id: "audit-" + o.id,
+        order_description: "Tracking audit (" + o.choice + ") - " + o.domain,
+        ipn_callback_url: base + "/api/public/audits/nowpayments-ipn",
+        success_url: "https://apex-tracking-audit.netlify.app/?paid=1",
+        cancel_url: "https://apex-tracking-audit.netlify.app/?cancelled=1",
+        is_fee_paid_by_user: false,
+      });
+      if (r.status !== 201 && r.status !== 200)
+        return res.status(502).json({ error: "NOWPayments error", detail: String((r.body && (r.body.message || r.body.error)) || r.error || r.raw || "").slice(0, 300) });
+      await getPool().query(
+        "UPDATE audit_orders SET stripe_session_id = $2 WHERE id = $1",
+        [o.id, "nowp:" + String(r.body.id || "")]);
+      res.json({ ok: true, invoice_url: r.body.invoice_url, invoice_id: r.body.id });
+    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
+  });
+
+  // NOWPayments IPN: verify HMAC-SHA512, settle on finished/confirmed.
+  app.post("/api/public/audits/nowpayments-ipn", express.json({
+    verify: (req, res, buf) => { req.rawBody = buf; },
+  }), async (req, res) => {
+    try {
+      const sig = req.headers["x-nowpayments-sig"];
+      if (NOWP_IPN_SECRET && sig) {
+        const expect = crypto.createHmac("sha512", NOWP_IPN_SECRET).update(req.rawBody).digest("hex");
+        if (sig !== expect) return res.status(401).json({ error: "bad signature" });
+      }
+      const b = req.body || {};
+      const status = String(b.payment_status || "").toLowerCase();
+      const orderRef = String(b.order_id || "");
+      const m = orderRef.match(/^audit-(.+)$/);
+      if (!m) return res.json({ ok: true, ignored: true });
+      if (!["finished", "confirmed"].includes(status))
+        return res.json({ ok: true, ignored: true, status });
+      const result = await settleAuditOrder(getPool(), m[1], {
+        sessionId: "nowp:" + String(b.payment_id || b.invoice_id || ""),
+        buyerEmail: null,
+        amountCents: Math.round(Number(b.price_amount || 0) * 100) || undefined,
+      });
+      res.json({ ok: true, settled: result.ok });
+    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
+  });
+
   // ---------- Stripe webhook: payment settles the order automatically ----------
   // The buyer pays at their per-order Checkout link; Stripe calls here.
   // We match metadata.audit_order_id -> order, mark it paid, record the
