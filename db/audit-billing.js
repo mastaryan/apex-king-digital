@@ -1042,7 +1042,9 @@ function mountAuditBilling(app, authRequired) {
   // purchase, create the pending audit shell, and email Ryan + the buyer.
   // Ryan's only job left: run the audit, add findings, send the report.
   app.post("/api/public/audits/stripe-webhook", async (req, res) => {
-    const secret = process.env.STRIPE_WEBHOOK_SECRET;
+    // Separate secret from the bridge webhook (each Stripe endpoint gets
+    // its own). Falls back to the shared one if the dedicated var isn't set.
+    const secret = process.env.STRIPE_AUDIT_WEBHOOK_SECRET || process.env.STRIPE_WEBHOOK_SECRET;
     if (!secret) return res.status(503).json({ error: "webhook_secret_missing" });
     if (!verifyStripeSig(req.rawBody, req.headers["stripe-signature"], secret)) {
       return res.status(400).json({ error: "bad_signature" });
