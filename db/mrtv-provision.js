@@ -313,6 +313,47 @@ function mountMrtvProvision(app, authRequired) {
     } catch (e) { res.json({ ok: false, error: String(e.message || e).slice(0, 160) }); }
   });
 
+  // ADMIN: send a message with a JBG-style inline keyboard (URL buttons) to
+  // any chat the bot can reach. Used for the Mister TV group nav bubbles.
+  // Body: { chat_id, text, thread_id?, buttons: [[{text, url}, ...], ...] }
+  app.post("/api/mrtv/telegram/send", authRequired, async (req, res) => {
+    const token = process.env.TELEGRAM_BOT_TOKEN || "";
+    if (!token) return res.json({ ok: false, error: "TELEGRAM_BOT_TOKEN not set" });
+    try {
+      const b = req.body || {};
+      const chatId = b.chat_id;
+      if (chatId === undefined || chatId === null || chatId === "")
+        return res.status(400).json({ ok: false, error: "chat_id required" });
+      const text = String(b.text || "").slice(0, 4000);
+      if (!text) return res.status(400).json({ ok: false, error: "text required" });
+      const rows = Array.isArray(b.buttons) ? b.buttons : [];
+      const keyboard = rows.slice(0, 8).map(r =>
+        (Array.isArray(r) ? r : []).slice(0, 4).map(btn => ({
+          text: String((btn && btn.text) || "Link").slice(0, 64),
+          url: String((btn && btn.url) || "https://t.me/").slice(0, 512),
+        })).filter(x => x.text && /^https?:\/\//.test(x.url))
+      ).filter(r => r.length);
+      const payload = { chat_id: chatId, text };
+      if (keyboard.length) payload.reply_markup = { inline_keyboard: keyboard };
+      const tid = Number(b.thread_id);
+      if (Number.isFinite(tid) && tid > 0) payload.message_thread_id = tid;
+      const r = await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j.ok === false)
+        return res.json({ ok: false, error: String((j && j.description) || ("HTTP " + r.status)).slice(0, 160) });
+      const sent = j.result || {};
+      res.json({
+        ok: true,
+        message_id: sent.message_id,
+        chat: sent.chat ? { id: sent.chat.id, title: sent.chat.title, type: sent.chat.type } : null,
+      });
+    } catch (e) { res.json({ ok: false, error: String(e.message || e).slice(0, 160) }); }
+  });
+
   // TEST ONLY: send a filled login email to an arbitrary address via the
   // normal template + mailer. Creates no panel line and no customer record.
   app.post("/api/mrtv/email/test-send", authRequired, async (req, res) => {
