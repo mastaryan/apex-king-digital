@@ -816,6 +816,26 @@ function mountAuditBilling(app, authRequired) {
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
 
+  // ---------- un-redacted public preview (dashboard only) ----------
+  // Ryan 2026-11-03: see exactly what the public tool looks like, with
+  // real domains. Same template, AUDITS inlined unmasked. Auth required;
+  // never linked from the public side.
+  app.get("/api/admin/audits/preview", authRequired, async (req, res) => {
+    try {
+      if (needPg(req, res)) return;
+      const raw = await exportAuditsForMask(getPool());
+      const dir = path.join(__dirname, "public-site");
+      let html = fs.readFileSync(path.join(dir, "index.html"), "utf8");
+      const inline = "<script>\nvar AUDITS = " +
+        JSON.stringify(raw).replace(/</g, "\\u003c") + ";\n</script>";
+      html = html.replace('<script src="audits.js"></script>', inline);
+      // Mark it clearly as the private preview.
+      html = html.replace("<title>", "<title>[PREVIEW - real domains] ");
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.send(html);
+    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
+  });
+
   // ---------- public guide fetch (no login — bearer token, delivered guides only) ----------
   // The public report page fetches this with the unlock link from the
   // delivery email. A wrong token, or a guide that was never delivered,
