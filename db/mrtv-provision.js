@@ -354,6 +354,36 @@ function mountMrtvProvision(app, authRequired) {
     } catch (e) { res.json({ ok: false, error: String(e.message || e).slice(0, 160) }); }
   });
 
+  // ADMIN: replace the inline keyboard on a bot-sent message (editMessageReplyMarkup).
+  // Body: { chat_id, message_id, buttons: [[{text, url}, ...], ...] }
+  app.post("/api/mrtv/telegram/edit-buttons", authRequired, async (req, res) => {
+    const token = process.env.TELEGRAM_BOT_TOKEN || "";
+    if (!token) return res.json({ ok: false, error: "TELEGRAM_BOT_TOKEN not set" });
+    try {
+      const b = req.body || {};
+      const chatId = b.chat_id, messageId = Number(b.message_id);
+      if ((chatId === undefined || chatId === null || chatId === "") || !Number.isFinite(messageId))
+        return res.status(400).json({ ok: false, error: "chat_id and message_id required" });
+      const rows = Array.isArray(b.buttons) ? b.buttons : [];
+      const keyboard = rows.slice(0, 8).map(r =>
+        (Array.isArray(r) ? r : []).slice(0, 4).map(btn => ({
+          text: String((btn && btn.text) || "Link").slice(0, 64),
+          url: String((btn && btn.url) || "https://t.me/").slice(0, 512),
+        })).filter(x => x.text && /^https?:\/\//.test(x.url))
+      ).filter(r => r.length);
+      const r = await fetch("https://api.telegram.org/bot" + token + "/editMessageReplyMarkup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, message_id: messageId,
+          reply_markup: { inline_keyboard: keyboard } }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j.ok === false)
+        return res.json({ ok: false, error: String((j && j.description) || ("HTTP " + r.status)).slice(0, 160) });
+      res.json({ ok: true, message_id: messageId });
+    } catch (e) { res.json({ ok: false, error: String(e.message || e).slice(0, 160) }); }
+  });
+
   // TEST ONLY: send a filled login email to an arbitrary address via the
   // normal template + mailer. Creates no panel line and no customer record.
   app.post("/api/mrtv/email/test-send", authRequired, async (req, res) => {
