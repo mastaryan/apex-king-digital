@@ -129,7 +129,7 @@ kbd{background:var(--panel2);border:1px solid var(--border);border-radius:4px;pa
       <button data-view="settings"><span class="ic">⚙</span>Settings</button>
     </nav>
     <div class="side-foot">
-      <button class="btn" onclick="setView('settings')">Order an audit — $25</button>
+      <button class="btn" onclick="goToOrder()">Order an audit — $25</button>
       <div class="coming"><b>Live Tracker</b><br>Continuous monitoring of your pixels, events and consent state. <b>Coming soon.</b></div>
     </div>
   </aside>
@@ -143,7 +143,7 @@ kbd{background:var(--panel2);border:1px solid var(--border);border-radius:4px;pa
     <p>Want a fresh audit of your site, or a re-check after you fix the findings? Book the $25 audit — card payment, website URL collected at checkout, report delivered by email.</p>
     <div class="row">
       <button class="btn ghost" onclick="closeModal()">Not now</button>
-      <button class="btn" onclick="setView('settings')">Order an audit — $25</button>
+      <button class="btn" onclick="goToOrder()">Order an audit — $25</button>
     </div>
   </div>
 </div>
@@ -226,6 +226,7 @@ function selectSite(key){
   if (s){ current = s; view = 'overview'; render(); window.scrollTo(0,0); }
 }
 function setView(v){ view = v; render(); window.scrollTo(0,0); }
+function goToOrder(){ setView('settings'); setTimeout(function(){ var el = document.getElementById('order-form'); if (el) el.scrollIntoView({behavior:'smooth', block:'start'}); }, 60); }
 document.querySelectorAll('#nav button').forEach(b => b.addEventListener('click', () => {
   document.querySelectorAll('#nav button').forEach(x => x.classList.remove('active'));
   b.classList.add('active');
@@ -442,7 +443,7 @@ function viewSettings(){
     '<div class="grid c2">' +
       '<div class="panel"><h3>About</h3><p style="color:var(--muted);font-size:13.5px">Tracking Health Score is Apex King Digital&rsquo;s website tracking audit, as a visual report. Every site listed here was audited by hand — checkout, consent, trackers and email — between Oct 9 and Oct 25, 2026. Findings are quoted verbatim from the audits. Each site&rsquo;s public privacy/terms pages were also scanned automatically (Oct 30) for named vendors in its legal copy — the stack-disclosure check; those findings are machine-generated and shown in each site&rsquo;s issue list. Nothing else here is invented or auto-generated.</p><p class="note">Helix King Labs&rsquo; own audit is private and is not listed.</p></div>' +
       '<div class="panel"><h3>Scoring rubric</h3><p style="color:var(--muted);font-size:13.5px">' + esc(META.rubric) + '</p><p class="note">The audits themselves assigned no numeric score — the 67/100 in the original mockup was a placeholder. Scores here are computed from the findings so sites can be compared.</p></div>' +
-      '<div class="panel"><h3>Order an audit</h3><p style="color:var(--muted);font-size:13.5px">Tell us the site and what kind of store it is, pick audit or bundle, then pay at Stripe. Your report lands by email after payment, and the site gets listed here (masked) with its own score page.</p>' +
+      '<div class="panel" id="order-form"><h3>Order an audit</h3><p style="color:var(--muted);font-size:13.5px">Tell us the site and what kind of store it is, pick audit or bundle, then pay at Stripe. Your report lands by email after payment, and the site gets listed here (masked) with its own score page.</p>' +
       '<label style="display:block;font-size:13px;color:var(--muted);margin:10px 0 4px">Website *</label><input id="ord-site" class="search" placeholder="example.com" autocomplete="off">' +
       '<label style="display:block;font-size:13px;color:var(--muted);margin:10px 0 4px">What kind of store is it? *</label><select id="ord-type" class="search"><option value="shopify">Shopify</option><option value="woocommerce">WooCommerce (WordPress)</option><option value="wix">Wix</option><option value="squarespace">Squarespace</option><option value="custom">Custom / other</option><option value="unknown">Not sure</option></select>' +
       '<label style="display:block;font-size:13px;color:var(--muted);margin:10px 0 4px">Email (for your report) *</label><input id="ord-email" class="search" placeholder="you@example.com" autocomplete="off">' +
