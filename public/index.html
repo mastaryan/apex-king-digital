@@ -145,6 +145,7 @@ footer button:hover{color:var(--silver)}
 @media(max-width:600px){.home-grid{grid-template-columns:repeat(2,1fr)}}
 .hcard{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px 16px;cursor:pointer;text-align:left;color:var(--silver);font-family:inherit;width:100%}
 .hcard:hover{border-color:var(--gold)}
+.badge-red{background:#dc2626;color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;margin-left:6px;white-space:nowrap}
 .hcard .t{font-size:16px;font-weight:700;margin-bottom:8px}
 .hcard .n{font-size:28px;font-weight:700;line-height:1.1}
 .hcard .n small{font-size:14px;color:var(--dim);font-weight:400}
@@ -1441,7 +1442,7 @@ function loadHome(){
     if (!r.ok) return;
     var h = r.j;
     document.getElementById('home-grid').innerHTML =
-      homeCard('audits', 'Audits', esc(h.audits.total) + ' <small>audits</small>', esc(h.audits.scored) + ' scored') +
+      homeCard('audits', 'Audits' + (h.audits.newOrders > 0 ? ' <span class="badge-red">' + esc(h.audits.newOrders) + ' new order' + (h.audits.newOrders > 1 ? 's' : '') + ' pending</span>' : ''), esc(h.audits.total) + ' <small>audits</small>', esc(h.audits.scored) + ' scored') +
       homeCard('local-seo', 'Local SEO', esc(h.localSeo.todo) + ' <small>to-do</small>', esc(h.localSeo.tracking) + ' tracking') +
       homeCard('websites', 'Websites', esc(h.sites.total) + ' <small>sites</small>', 'live status from Render') +
       homeCard('bots', 'Bots', esc(h.bots.pending) + ' <small>pending</small>', esc(h.bots.live) + ' live' + (h.bots.down ? ' · ' + h.bots.down + ' down' : '')) +

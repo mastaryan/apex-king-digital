@@ -251,6 +251,10 @@ function mountHome(app, authRequired) {
       const queues = await buildQueues(pool);
       const { rows: ac } = await pool.query(
         "SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE score IS NOT NULL)::int AS scored FROM audits");
+      // Ryan 2026-11-03: red "new order pending" badge = paid orders
+      // awaiting his audit work (payment settled, report not yet sent).
+      const { rows: np } = await pool.query(
+        "SELECT COUNT(*)::int AS n FROM audit_orders WHERE status = 'paid' AND is_test = FALSE");
       const { rows: cc } = await pool.query("SELECT COUNT(*)::int AS n FROM customers");
       const { rows: lc } = await pool.query(
         "SELECT COUNT(*) FILTER (WHERE status = 'todo')::int AS todo, COUNT(*) FILTER (WHERE status = 'tracking')::int AS tracking FROM local_seo_items");
@@ -271,7 +275,7 @@ function mountHome(app, authRequired) {
       res.json({
         sites: { total: sites.length },
         audits: {
-          total: ac[0].total, scored: ac[0].scored,
+          total: ac[0].total, scored: ac[0].scored, newOrders: np[0].n,
           queues: { audit: queues.audit.count, guide: queues.guide.count, bundle: queues.bundle.count },
         },
         invoices: { open: openInvoices.length, openList: openInvoices, paid: paidInvoices },
