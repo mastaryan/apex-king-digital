@@ -283,6 +283,10 @@ function mountMrtvLedger(app, authRequired) {
         return res.status(400).json({ error: "credits must be a whole number" });
       const date = /^\d{4}-\d{2}-\d{2}$/.test(String(b.date || "")) ? b.date : nyToday();
       const payload = { customer, date, gross_c: grossC, fee_c: feeC, net_c: netC, credits, plan: cleanStr(b.plan, 60) };
+      // Ryan 2026-11-04: inventory sales earn the $2/credit reserve on credits
+      // already spent (booked as credit_use) — pass reserve_credits with credits=0.
+      const rc = parseInt(b.reserve_credits, 10);
+      if (Number.isInteger(rc) && rc >= 0 && rc <= 100000) payload.reserve_credits = rc;
       const { rows } = await getPool().query(
         "INSERT INTO mrtv_ledger_events (kind, payload, note) VALUES ('order', $1::jsonb, $2) RETURNING id",
         [JSON.stringify(payload), cleanStr(b.note, 300)]);
