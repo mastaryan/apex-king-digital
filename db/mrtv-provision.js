@@ -397,6 +397,23 @@ function mountMrtvProvision(app, authRequired) {
     } catch (e) { res.json({ ok: false, error: String(e.message || e).slice(0, 200) }); }
   });
 
+  // ADMIN: raw panel API probe (undocumented actions). Ryan 2026-11-04:
+  // the panel UI Refund button errors — trying the API route for the same op.
+  // POST body: { action, params: { k: v } } — admin auth only.
+  app.post("/api/mrtv/panel/raw", authRequired, async (req, res) => {
+    try {
+      const b = req.body || {};
+      const action = cleanStr(b.action, 40);
+      if (!action) return res.status(400).json({ ok: false, error: "action required" });
+      const params = { action };
+      for (const [k, v] of Object.entries(b.params || {})) {
+        if (/^[a-z_]+$/.test(k)) params[k] = String(v).slice(0, 128);
+      }
+      const d = await panelCall(params);
+      res.json({ ok: true, result: d });
+    } catch (e) { res.json({ ok: false, error: String(e.message || e).slice(0, 300) }); }
+  });
+
   // TEST ONLY: send a filled login email to an arbitrary address via the
   // normal template + mailer. Creates no panel line and no customer record.
   app.post("/api/mrtv/email/test-send", authRequired, async (req, res) => {
