@@ -384,6 +384,19 @@ function mountMrtvProvision(app, authRequired) {
     } catch (e) { res.json({ ok: false, error: String(e.message || e).slice(0, 160) }); }
   });
 
+  // ADMIN DIAG: panel device_info for a line (package/bouquet inspection).
+  // Ryan 2026-11-04: verify what package hand-made lines carry.
+  // POST body: { username, password } — admin auth only.
+  app.post("/api/mrtv/panel/device-info", authRequired, async (req, res) => {
+    try {
+      const b = req.body || {};
+      const u = cleanStr(b.username, 64), p = cleanStr(b.password, 64);
+      if (!u || !p) return res.status(400).json({ ok: false, error: "username and password required" });
+      const d = await panelCall({ action: "device_info", type: "m3u", username: u, password: p });
+      res.json({ ok: true, device: d });
+    } catch (e) { res.json({ ok: false, error: String(e.message || e).slice(0, 200) }); }
+  });
+
   // TEST ONLY: send a filled login email to an arbitrary address via the
   // normal template + mailer. Creates no panel line and no customer record.
   app.post("/api/mrtv/email/test-send", authRequired, async (req, res) => {
