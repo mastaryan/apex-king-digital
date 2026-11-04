@@ -172,6 +172,8 @@ CREATE TABLE IF NOT EXISTS audit_purchases (
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS audit_purchases_audit_id_idx ON audit_purchases (audit_id);
+-- Backfill for tables created before is_test was added (2026-11-03: /api/home 500)
+ALTER TABLE audit_purchases ADD COLUMN IF NOT EXISTS is_test BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- Fix guides: the per-audit write-up (per-finding fix steps). Drafted from
 -- the findings by template, reviewed/edited by Ryan in the dashboard,
