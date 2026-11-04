@@ -174,6 +174,9 @@ CREATE TABLE IF NOT EXISTS audit_purchases (
 CREATE INDEX IF NOT EXISTS audit_purchases_audit_id_idx ON audit_purchases (audit_id);
 -- Backfill for tables created before is_test was added (2026-11-03: /api/home 500)
 ALTER TABLE audit_purchases ADD COLUMN IF NOT EXISTS is_test BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE audit_deliveries ADD COLUMN IF NOT EXISTS is_test BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE audit_orders ADD COLUMN IF NOT EXISTS is_test BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS is_test BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- Fix guides: the per-audit write-up (per-finding fix steps). Drafted from
 -- the findings by template, reviewed/edited by Ryan in the dashboard,
@@ -274,6 +277,7 @@ CREATE TABLE IF NOT EXISTS audit_orders (
   buyer_email  CITEXT,
   status       TEXT NOT NULL DEFAULT 'ordered' CHECK (status IN ('ordered','audited','cancelled')),
   audit_id     TEXT REFERENCES audits(id) ON DELETE SET NULL,
+  is_test      BOOLEAN NOT NULL DEFAULT FALSE,
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS audit_orders_domain_idx ON audit_orders (domain);
