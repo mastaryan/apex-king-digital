@@ -256,9 +256,14 @@ async function logEmail(o) {
 // the provision click needs no HTTP-to-self).
 async function postLedgerOrder(o) {
   const grossC = o.grossC, feeC = o.feeC, netC = grossC - feeC;
+  const payload = { customer: o.customer, customer_id: o.customerId || null, date: o.date, gross_c: grossC, fee_c: feeC, net_c: netC, credits: o.credits, plan: o.plan };
+  // Ryan 2026-11-04: inventory sales pass reserveCredits so the $2/credit
+  // reserve is earned on the credits sold even though credits=0 (panel spend
+  // already booked as credit_use).
+  if (o.reserveCredits !== undefined && o.reserveCredits !== null) payload.reserve_credits = o.reserveCredits | 0;
   await getPool().query(
     "INSERT INTO mrtv_ledger_events (kind, payload, note) VALUES ('order', $1::jsonb, $2)",
-    [JSON.stringify({ customer: o.customer, customer_id: o.customerId || null, date: o.date, gross_c: grossC, fee_c: feeC, net_c: netC, credits: o.credits, plan: o.plan }),
+    [JSON.stringify(payload),
      cleanStr(o.note, 300)]);
 }
 
@@ -582,46 +587,53 @@ function mountMrtvProvision(app, authRequired) {
   // re-sends username/password for the lines on file. Uses the server the
   // lines were provisioned on: stamped per line since 2026-11-01; older rows
   // fall back to the 2026-10-30 server flip date (pre-flip = tvdeluxe.us).
+  // Shared: build + send the branded login email for a customer row that has
+  // linked lines. Returns { ok:true, to, serverUrl } or { ok:false, error, code }.
+  async function sendLoginEmail(c) {
+    const lines = Array.isArray(c.lines) ? c.lines : [];
+    if (!lines.length) return { ok: false, code: 400, error: "no lines on file — provision first" };
+    if (!c.email) return { ok: false, code: 400, error: "no email on file for this customer" };
+    const ml = mailer();
+    if (!ml) return { ok: false, code: 400, error: "SMTP not configured on server" };
+    let serverUrl = lines[0].server || lineServer();
+    if (!lines[0].server && c.provisioned_at && c.provisioned_at.toISOString() < "2026-10-30T14:53:00Z")
+      serverUrl = "http://line.tvdeluxe.us";
+    const tvs = lines.length;
+    const firstName = String(c.name || "").split(" ")[0] || "there";
+    const endIso = c.end_date ? c.end_date.toISOString().slice(0, 10) : "";
+    const orderCode = c.order_code || ("MR-" + String(c.id).slice(0, 8).toUpperCase());
+    const tvWord = tvs === 1 ? "1 TV" : tvs + " TVs";
+    const planDesc = tvWord + " — " + (c.renewal_amount_cents != null
+      ? "$" + (c.renewal_amount_cents / 100).toFixed(2).replace(/\.00$/, "") + "/" + (c.plan === "monthly" ? "month" : "year")
+      : c.plan);
+    const filled = fillLoginEmail(LOGIN_TEMPLATE, {
+      firstName: firstName, planDesc: planDesc, expiry: fmtLongDate(endIso),
+      tvLines: lines, serverUrl: serverUrl,
+      tivimateEmail: c.tivimate_bundle ? c.email : null, orderCode: orderCode,
+    });
+    try {
+      const info = await ml.sendMail({
+        from: loginFrom(),
+        replyTo: "tv@watchmrtv.com",
+        to: c.email, subject: filled.subject, text: filled.text, html: filled.html,
+      });
+      await logEmail({ kind: "provision_login", customerId: c.id, to: c.email, subject: filled.subject, info: info, ok: true });
+    } catch (e) {
+      const em = String(e.message || e).slice(0, 160);
+      await logEmail({ kind: "provision_login", customerId: c.id, to: c.email, subject: filled.subject, ok: false, error: em });
+      return { ok: false, code: 502, error: "send failed: " + em };
+    }
+    return { ok: true, to: c.email, serverUrl: serverUrl };
+  }
+
   app.post("/api/mrtv/customers/:id/resend-logins", authRequired, async (req, res) => {
     try {
       if (needPg(req, res)) return;
       const { rows } = await getPool().query("SELECT * FROM mrtv_customers WHERE id = $1", [req.params.id]);
       if (!rows.length) return res.status(404).json({ error: "customer not found" });
-      const c = rows[0];
-      const lines = Array.isArray(c.lines) ? c.lines : [];
-      if (!lines.length) return res.status(400).json({ error: "no lines on file — provision first" });
-      if (!c.email) return res.status(400).json({ error: "no email on file for this customer" });
-      const ml = mailer();
-      if (!ml) return res.status(400).json({ error: "SMTP not configured on server" });
-      let serverUrl = lines[0].server || lineServer();
-      if (!lines[0].server && c.provisioned_at && c.provisioned_at.toISOString() < "2026-10-30T14:53:00Z")
-        serverUrl = "http://line.tvdeluxe.us";
-      const tvs = lines.length;
-      const firstName = String(c.name || "").split(" ")[0] || "there";
-      const endIso = c.end_date ? c.end_date.toISOString().slice(0, 10) : "";
-      const orderCode = c.order_code || ("MR-" + String(c.id).slice(0, 8).toUpperCase());
-      const tvWord = tvs === 1 ? "1 TV" : tvs + " TVs";
-      const planDesc = tvWord + " — " + (c.renewal_amount_cents != null
-        ? "$" + (c.renewal_amount_cents / 100).toFixed(2).replace(/\.00$/, "") + "/" + (c.plan === "monthly" ? "month" : "year")
-        : c.plan);
-      const filled = fillLoginEmail(LOGIN_TEMPLATE, {
-        firstName: firstName, planDesc: planDesc, expiry: fmtLongDate(endIso),
-        tvLines: lines, serverUrl: serverUrl,
-        tivimateEmail: c.tivimate_bundle ? c.email : null, orderCode: orderCode,
-      });
-      try {
-        const info = await ml.sendMail({
-          from: loginFrom(),
-          replyTo: "tv@watchmrtv.com",
-          to: c.email, subject: filled.subject, text: filled.text, html: filled.html,
-        });
-        await logEmail({ kind: "provision_login", customerId: c.id, to: c.email, subject: filled.subject, info: info, ok: true });
-      } catch (e) {
-        const em = String(e.message || e).slice(0, 160);
-        await logEmail({ kind: "provision_login", customerId: c.id, to: c.email, subject: filled.subject, ok: false, error: em });
-        return res.status(502).json({ error: "send failed: " + em });
-      }
-      res.json({ ok: true, to: c.email, serverUrl: serverUrl });
+      const r = await sendLoginEmail(rows[0]);
+      if (!r.ok) return res.status(r.code || 500).json({ error: r.error });
+      res.json({ ok: true, to: r.to, serverUrl: r.serverUrl });
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
 
@@ -654,6 +666,72 @@ function mountMrtvProvision(app, authRequired) {
         [JSON.stringify(lines), provAt, req.params.id]);
       if (!rows.length) return res.status(404).json({ error: "customer not found" });
       res.json({ ok: true, id: rows[0].id, name: rows[0].name, lines: lines.length });
+    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
+  });
+
+  // Sell from inventory (Ryan 2026-11-04): link EXISTING panel lines to a new
+  // customer — no new panel lines created, no new credits spent. One tap:
+  // verify each line exists via panel device_info (fail fast) → link →
+  // send the login email automatically → post the ledger sale with credits=0
+  // (the panel spend was already booked as credit_use) while still earning
+  // the $2/credit reserve on the credits sold via reserve_credits.
+  // Body: { lines: [{username, password}], gross_cents, fee_cents? }
+  app.post("/api/mrtv/customers/:id/provision-inventory", authRequired, async (req, res) => {
+    try {
+      if (needPg(req, res)) return;
+      const b = req.body || {};
+      const { rows } = await getPool().query("SELECT * FROM mrtv_customers WHERE id = $1", [req.params.id]);
+      if (!rows.length) return res.status(404).json({ error: "customer not found" });
+      const c = rows[0];
+      if (Array.isArray(c.lines) && c.lines.length)
+        return res.status(400).json({ error: "customer already has lines — use Renewal paid" });
+      if (!Array.isArray(b.lines) || !b.lines.length)
+        return res.status(400).json({ error: "lines array required" });
+      const grossC = Math.round(Number(b.gross_cents) || 0);
+      if (!(grossC > 0)) return res.status(400).json({ error: "a paid amount is required" });
+      if (!panelKey()) return res.status(400).json({ error: "TVPLUS_API_KEY is not set in the Render env" });
+
+      // 1. Verify each line exists in the panel — abort before touching anything.
+      const linked = [];
+      let n = 0;
+      for (const l of b.lines) {
+        const username = cleanStr(l.username, 64), password = cleanStr(l.password, 64);
+        if (!username || !password) return res.status(400).json({ error: "each line needs username + password" });
+        try {
+          await panelCall({ action: "device_info", type: "m3u", username: username, password: password });
+        } catch (e) {
+          return res.status(502).json({ error: "panel line not found: " + username + " — " + String(e.message || e).slice(0, 100) });
+        }
+        n++;
+        linked.push({
+          tv: n, type: "m3u", sub: 12, pack: 36929, username: username, password: password,
+          user_id: null, demo: false, server: "http://line.watchmrtv.com",
+          created_at: new Date().toISOString(), inventory: true,
+        });
+      }
+
+      // 2. Link the lines + mark provisioned.
+      await getPool().query(
+        "UPDATE mrtv_customers SET lines = $1::jsonb, provisioned_at = now(), tv_count = $2 WHERE id = $3",
+        [JSON.stringify(linked), linked.length, c.id]);
+
+      // 3. Login email, automatically.
+      const { rows: rows2 } = await getPool().query("SELECT * FROM mrtv_customers WHERE id = $1", [c.id]);
+      const em = await sendLoginEmail(rows2[0]);
+      if (!em.ok) return res.status(em.code || 502).json({ error: "lines linked, but email failed: " + em.error });
+
+      // 4. Ledger sale: credits=0 (no new panel spend), reserve on credits sold.
+      const feeC = (b.fee_cents === undefined || b.fee_cents === "") ? Math.round(grossC * 0.0275) : Math.round(Number(b.fee_cents) || 0);
+      const tvs = linked.length;
+      await postLedgerOrder({
+        customer: c.name, customerId: c.id, date: nyToday(),
+        grossC: grossC, feeC: feeC, credits: 0, reserveCredits: 12 * tvs,
+        plan: c.plan || "yearly",
+        note: "Inventory sale — existing panel lines, no new credits spent (" + (c.order_code || c.id.slice(0, 8).toUpperCase()) + ")",
+      });
+      await getPool().query("UPDATE mrtv_customers SET ledger_posted_for = $1 WHERE id = $2", [nyToday(), c.id]);
+
+      res.json({ ok: true, to: em.to, tvs: tvs, serverUrl: em.serverUrl });
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
 

@@ -81,7 +81,11 @@ function computeLedger(events) {
           // Ryan 2026-10-29: reserve ONLY on paid lines. Free/comp lines
           // (net $0) generate zero reserve. Net is never negative, so the
           // guard is equivalent to the plain min() for every paid order.
-          const take = netC > 0 ? Math.min(RESERVE_PER_CREDIT_C * cr, netC) : 0;
+          // Ryan 2026-11-04: inventory sales post credits=0 (the panel spend
+          // was already booked as credit_use) but still earn reserve on the
+          // credits actually sold, via payload.reserve_credits.
+          const rcr = (p.reserve_credits === undefined || p.reserve_credits === null) ? cr : (p.reserve_credits | 0);
+          const take = netC > 0 ? Math.min(RESERVE_PER_CREDIT_C * rcr, netC) : 0;
           st.reserveC += take;
           const rem = netC - take;
           if (st.repayAllocatedC < MARK_REPAY_TARGET_C) {

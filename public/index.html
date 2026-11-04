@@ -1824,6 +1824,10 @@ function tvCustomerRow(c, dormant){
         if (!dormant) {
           if (!c.provisionedAt && !lines.length) {
             btns += '<button class="btn primary" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-provision="' + c.id + '" data-tv-tvs="' + (c.tvCount || 1) + '" data-tv-name="' + esc(c.name) + '">Mark paid &amp; provision</button> ';
+            // Ryan 2026-11-04: sell existing panel lines (inventory) instead of
+            // creating new ones — links the line, emails the logins, posts the
+            // ledger sale, no new credits spent.
+            btns += '<button class="btn" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-inventory="' + c.id + '" data-tv-name="' + esc(c.name) + '">Sell inventory line</button> ';
           } else if (lines.length) {
             // "Renew line" removed 2026-11-01 (Ryan): one-tap "Renewal paid"
             // covers panel renew + date roll + ledger. The /renew-line API
@@ -1914,6 +1918,7 @@ function mrtvListClick(ev){
   var amtB = ev.target.getAttribute && ev.target.getAttribute('data-tv-amt');
   var provB = ev.target.getAttribute && ev.target.getAttribute('data-tv-provision');
   var rlB = ev.target.getAttribute && ev.target.getAttribute('data-tv-renewline');
+  var invB = ev.target.getAttribute && ev.target.getAttribute('data-tv-inventory');
   var delC = ev.target.getAttribute && ev.target.getAttribute('data-tv-delcust');
   if (delC) {
     if (!confirm('Delete ' + ev.target.getAttribute('data-tv-name') + ' from the dashboard?\n\nTheir panel lines are untouched (they expire on their own). Ledger history stays.')) return;
@@ -1945,6 +1950,24 @@ function mrtvListClick(ev){
       var bad = (r.j.results || []).filter(function(x){ return !x.ok; });
       alert(bad.length ? 'Some lines failed to renew:\n' + bad.map(function(x){ return 'TV ' + x.tv + ': ' + x.error; }).join('\n') : 'All lines renewed.');
       loadMrtv();
+    });
+    return;
+  }
+  if (invB) {
+    var nm = ev.target.getAttribute('data-tv-name');
+    var u = prompt('Inventory line username for ' + nm + ':');
+    if (!u) return;
+    var p = prompt('Password for line ' + u + ':');
+    if (!p) return;
+    var g = prompt('Amount paid by ' + nm + ' (Cash App, dollars):', '');
+    if (g === null || g === '') return;
+    var gc = Math.round(parseFloat(g) * 100);
+    if (!(gc > 0)) { alert('Enter a valid dollar amount.'); return; }
+    if (!confirm('Sell inventory line ' + u + ' to ' + nm + ' for $' + g + '?\nLinks the existing panel line (no new credits spent), emails the logins, and posts the ledger sale.')) return;
+    api('/api/mrtv/customers/' + invB + '/provision-inventory', { method: 'POST', body: JSON.stringify({ lines: [{ username: u, password: p }], gross_cents: gc }) }).then(function(r){
+      if (!r.ok) { alert('Failed: ' + ((r.j && r.j.error) || 'unknown error')); return; }
+      alert('Sold! ' + r.j.tvs + ' line(s) linked. Login email sent to ' + r.j.to + '. Ledger posted.');
+      loadMrtv(); loadHome();
     });
     return;
   }
