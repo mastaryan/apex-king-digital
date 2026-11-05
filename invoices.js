@@ -213,6 +213,13 @@ function readAttachment(rec) {
     return { filename: rec.attachmentName || "attachment.pdf", content: fs.readFileSync(rec.attachmentFile) };
   } catch { return null; }
 }
+function escapeHtml(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
 
 async function emailCopyToRyan(site, rec, inv) {
   const atts = [];
@@ -234,6 +241,18 @@ async function emailCopyToRyan(site, rec, inv) {
       "View / pay: " + (rec.hostedUrl || "(link pending)") + "\n" +
       (rec.attachmentName ? "Attachment sent to client: " + rec.attachmentName + "\n" : "") +
       "\nThe invoice PDF is attached to this copy for your records.\n",
+    html:
+      "<p>Apex King Digital invoice sent.</p>" +
+      "<p><strong>Client:</strong> " + escapeHtml(site.name) + " (" + escapeHtml(domainOf(site)) + ")<br>" +
+      "<strong>Sent to:</strong> " + escapeHtml(rec.recipient) + (rec.test ? "  [TEST]" : "") + "<br>" +
+      "<strong>Invoice:</strong> " + escapeHtml(rec.number || rec.id) + "<br>" +
+      "<strong>Amount:</strong> $100.00 &nbsp; <strong>Due:</strong> " + escapeHtml(fmtDate(rec.dueDate)) + " &nbsp; <strong>Renewal:</strong> " + escapeHtml(fmtDate(rec.renewalDate)) + "</p>" +
+      (rec.hostedUrl ?
+        "<p><a href=\"" + escapeHtml(rec.hostedUrl) + "\" style=\"display:inline-block;background:#1a73e8;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:6px;font-weight:bold;font-size:16px;\">Pay Invoice</a></p>" +
+        "<p style=\"font-size:12px;color:#666;\">Or copy this link:<br><a href=\"" + escapeHtml(rec.hostedUrl) + "\" style=\"color:#1a73e8;word-break:break-all;\">" + escapeHtml(rec.hostedUrl) + "</a></p>"
+        : "<p><em>Payment link pending.</em></p>") +
+      (rec.attachmentName ? "<p>Attachment sent to client: " + escapeHtml(rec.attachmentName) + "</p>" : "") +
+      "<p>The invoice PDF is attached to this copy for your records.</p>",
     attachments: atts,
   });
 }
@@ -251,6 +270,16 @@ async function emailCompanionToClient(site, rec, inv) {
       "Your annual website renewal invoice " + (rec.number || "") + " ($100, due " + fmtDate(rec.dueDate) + ") is coming in a separate email from Stripe. You can also view and pay it here:\n" + (rec.hostedUrl || "") + "\n\n" +
       "Questions? Just reply to this email or write us at hello@apexkingdigital.com.\n\n" +
       "Thank you for your business!\n— Ryan Sizemore, Apex King Digital\n",
+    html:
+      "<p>" + (first ? "Hi " + escapeHtml(first) + "," : "Hi,") + "</p>" +
+      "<p>Attached is the website performance &amp; SEO review we prepared for " + escapeHtml(site.name) + " (" + escapeHtml(domainOf(site)) + ") — how the site performed this year and the improvements we recommend next.</p>" +
+      "<p>Your annual website renewal invoice " + escapeHtml(rec.number || "") + " ($100, due " + escapeHtml(fmtDate(rec.dueDate)) + ") is coming in a separate email from Stripe.</p>" +
+      (rec.hostedUrl ?
+        "<p><a href=\"" + escapeHtml(rec.hostedUrl) + "\" style=\"display:inline-block;background:#1a73e8;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:6px;font-weight:bold;font-size:16px;\">Pay Invoice</a></p>" +
+        "<p style=\"font-size:12px;color:#666;\">Or copy this link:<br><a href=\"" + escapeHtml(rec.hostedUrl) + "\" style=\"color:#1a73e8;word-break:break-all;\">" + escapeHtml(rec.hostedUrl) + "</a></p>"
+        : "") +
+      "<p>Questions? Just reply to this email or write us at hello@apexkingdigital.com.</p>" +
+      "<p>Thank you for your business!<br>— Ryan Sizemore, Apex King Digital</p>",
     attachments: [att],
   });
 }
@@ -360,6 +389,11 @@ async function nudgeDraftReady(site, renewalIso) {
     to: COPY_EMAIL,
     subject: "Renewal invoice draft ready — " + site.name + " (renews " + fmtDate(renewalIso) + ")",
     text: "A draft $100 renewal invoice for " + site.name + " (" + domainOf(site) + ") was created in the dashboard.\n\nReview it in the Upcoming list — it only sends once you've approved it there (approve now and it goes on its scheduled date, " + fmtDate(renewalIso) + " renewal, due on the renewal date).\n\nDashboard: https://dashboard.apexkingdigital.com\n",
+    html:
+      "<p>A draft $100 renewal invoice for <strong>" + escapeHtml(site.name) + "</strong> (" + escapeHtml(domainOf(site)) + ") was created in the dashboard.</p>" +
+      "<p>Review it in the Upcoming list — it only sends once you've approved it there (approve now and it goes on its scheduled date, " + escapeHtml(fmtDate(renewalIso)) + " renewal, due on the renewal date).</p>" +
+      "<p><a href=\"https://dashboard.apexkingdigital.com\" style=\"display:inline-block;background:#1a73e8;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:6px;font-weight:bold;font-size:16px;\">Open Dashboard</a></p>" +
+      "<p style=\"font-size:12px;color:#666;\">Or copy this link:<br><a href=\"https://dashboard.apexkingdigital.com\" style=\"color:#1a73e8;\">https://dashboard.apexkingdigital.com</a></p>",
   });
 }
 
