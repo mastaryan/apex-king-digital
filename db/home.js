@@ -584,7 +584,7 @@ function mountHome(app, authRequired) {
       if (needPg(req, res)) return;
       const today = nyToday();
       const { rows } = await getPool().query(
-        "SELECT id, name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, tivimate_bundle, lines, provisioned_at, needs_manual, created_at, order_code, archived_at, archive_reason FROM mrtv_customers ORDER BY end_date ASC");
+        "SELECT id, name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, tivimate_bundle, lines, provisioned_at, needs_manual, created_at, order_code, archived_at, archive_reason, source, payment_method FROM mrtv_customers ORDER BY end_date ASC");
       res.json({
         customers: rows.map((r) => ({
           id: r.id, name: r.name, email: r.email, cell: r.cell, plan: r.plan,
@@ -598,6 +598,8 @@ function mountHome(app, authRequired) {
           provisionedAt: r.provisioned_at ? r.provisioned_at.toISOString() : null,
           needsManual: r.needs_manual || "",
           orderCode: r.order_code || null,
+          source: r.source || "manual",
+          paymentMethod: r.payment_method || null,
           archivedAt: r.archived_at ? r.archived_at.toISOString().slice(0, 10) : null,
           archiveReason: r.archive_reason || null,
         })),

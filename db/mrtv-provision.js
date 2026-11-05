@@ -402,6 +402,88 @@ function mountMrtvProvision(app, authRequired) {
     } catch (e) { res.json({ ok: false, error: String(e.message || e).slice(0, 200) }); }
   });
 
+  // WEBSITE-ORDER WEBHOOK (Ryan 2026-11-04): Netlify fires this when a customer
+  // submits the watchmrtv.com order form (mrtv-order). It creates a PENDING
+  // customer row for Ryan to review — nothing is provisioned, nothing is
+  // emailed to the customer. Ryan checks the details, then one-taps
+  // "Mark paid & provision". A private Telegram ping goes to Ryan's DM only
+  // (never the group). Auth is a shared secret in the query string (?key=),
+  // set as MRTV_ORDER_WEBHOOK_SECRET in the Render env — fail closed when
+  // unset. Netlify payload: { form_name, data: { field: value } }.
+  app.post("/api/mrtv/webhooks/netlify-order", async (req, res) => {
+    try {
+      if (needPg(req, res)) return;
+      const secret = process.env.MRTV_ORDER_WEBHOOK_SECRET || "";
+      if (!secret) return res.status(503).json({ ok: false, error: "webhook not configured" });
+      if (String(req.query.key || "") !== secret)
+        return res.status(403).json({ ok: false, error: "bad key" });
+      const p = req.body || {};
+      const formName = String(p.form_name || p.formName || "");
+      if (formName && formName !== "mrtv-order")
+        return res.json({ ok: true, ignored: true, reason: "not an order form" });
+      const d = (p.data && typeof p.data === "object") ? p.data : {};
+      const hf = (p.human_fields && typeof p.human_fields === "object") ? p.human_fields : {};
+      const pick = (k) => (d[k] !== undefined ? d[k] : hf[k]);
+      const str = (v) => {
+        if (v === undefined || v === null) return "";
+        if (Array.isArray(v)) return v.map(x => String(x)).join(", ");
+        return String(v);
+      };
+      const name = cleanStr(str(pick("name")), 120) || cleanStr(str(pick("email")).split("@")[0], 120) || "Website customer";
+      const email = cleanStr(str(pick("email")), 120) || null;
+      const cell = cleanStr(str(pick("phone")) || str(pick("cell")), 40) || null;
+      const tvs = Math.max(1, Math.min(10, parseInt(str(pick("connections")), 10) || 1));
+      const period = String(str(pick("billing_period")) || "Yearly").toLowerCase();
+      const plan = period.indexOf("month") >= 0 ? "monthly" : "yearly";
+      const toCents = (v) => { const n = parseFloat(String(v || "").replace(/[^0-9.]/g, "")); return Number.isFinite(n) ? Math.round(n * 100) : null; };
+      const totalC = toCents(pick("total_due"));
+      const planC = toCents(pick("plan_price"));
+      const amountC = totalC !== null ? totalC : planC;
+      const pkgRaw = String(str(pick("channel_package")) || "");
+      const pkg = pkgRaw === "All countries" ? "all" : (pkgRaw === "Select countries" ? "custom" : "usa");
+      const adultRaw = str(pick("adult_channels"));
+      const adult = adultRaw !== "" && adultRaw.toLowerCase() !== "no" && adultRaw.toLowerCase() !== "false";
+      const payMethod = cleanStr(str(pick("payment_method")), 60) || "Cash App";
+      const formCode = cleanStr(str(pick("order_code")), 40);
+
+      // Dedupe: Netlify retries must not create a second row for one order.
+      if (formCode) {
+        const { rows: dup } = await getPool().query(
+          "SELECT id FROM mrtv_customers WHERE order_code = $1", [formCode]);
+        if (dup.length) return res.json({ ok: true, deduped: true, id: dup[0].id });
+      }
+
+      const start = nyToday();
+      const end = plan === "monthly" ? addMonthsISO(start, 1) : addYearsISO(start, 1);
+      const noteParts = ["🌐 WEBSITE ORDER — REVIEW BEFORE PROVISIONING"];
+      noteParts.push("Payment: " + payMethod);
+      if (amountC !== null) noteParts.push("Total due: $" + (amountC / 100).toFixed(2).replace(/\.00$/, ""));
+      const devices = str(pick("devices"));
+      if (devices) noteParts.push("Devices: " + devices);
+      const countries = str(pick("custom_countries"));
+      if (countries) noteParts.push("Countries: " + countries);
+      const ref = str(pick("referred_by"));
+      if (ref) noteParts.push("Referred by: " + ref);
+      const deliv = str(pick("delivery_preference"));
+      if (deliv) noteParts.push("Delivery: " + deliv);
+      const custNotes = str(pick("notes"));
+      if (custNotes) noteParts.push("Customer notes: " + custNotes);
+      const notes = noteParts.join("\n");
+      const { rows } = await getPool().query(
+        "INSERT INTO mrtv_customers (name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, source, payment_method) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'website',$12) RETURNING id",
+        [name, email, cell, plan, start, end, notes, amountC, tvs, pkg, adult, payMethod]);
+      const id = rows[0].id;
+      const code = formCode || ("MR-" + String(id).slice(0, 8).toUpperCase());
+      await getPool().query("UPDATE mrtv_customers SET order_code = $1 WHERE id = $2", [code, id]);
+
+      // Private ping to Ryan's DM only — never the group.
+      await sendTelegramPing("🛒 New website order: " + name + " — " + tvs + " TV" + (tvs === 1 ? "" : "s") + ", " + plan +
+        (amountC !== null ? ", $" + (amountC / 100).toFixed(2).replace(/\.00$/, "") : "") + " via " + payMethod +
+        ", code " + code + ". Review in the dashboard, then Mark paid & provision.");
+      res.json({ ok: true, id: id, order_code: code });
+    } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e).slice(0, 300) }); }
+  });
+
   // ADMIN: raw panel API probe (undocumented actions). Ryan 2026-11-04:
   // the panel UI Refund button errors — trying the API route for the same op.
   // POST body: { action, params: { k: v } } — admin auth only.
@@ -561,7 +643,10 @@ function mountMrtvProvision(app, authRequired) {
       if (c.renewal_amount_cents != null && endKey &&
           (!c.ledger_posted_for || c.ledger_posted_for.toISOString().slice(0, 10) !== endKey)) {
         const grossC = c.renewal_amount_cents;
-        const feeC = Math.round(grossC * 0.0275);
+        // Ryan 2026-11-04: crypto is direct-to-wallet — no processor fee.
+        // Cash App keeps the 2.75% fee. payment_method comes from the website
+        // order form (NULL = dashboard-added = Cash App behavior).
+        const feeC = String(c.payment_method || "").toLowerCase().indexOf("crypto") >= 0 ? 0 : Math.round(grossC * 0.0275);
         await postLedgerOrder({
           customer: c.name, customerId: c.id, date: nyToday(), grossC: grossC, feeC: feeC,
           credits: tvs * sub, plan: c.plan, note: "Provisioned sale (auto) — " + orderCode,
@@ -750,7 +835,7 @@ function mountMrtvProvision(app, authRequired) {
       const grossC = Math.round(Number(b.gross_cents) || 0);
       if (!(grossC > 0)) return res.status(400).json({ error: "a paid amount is required" });
       const { rows } = await getPool().query(
-        "SELECT id, name, plan, tv_count, end_date, order_code, lines, ledger_posted_for FROM mrtv_customers WHERE id = $1",
+        "SELECT id, name, plan, tv_count, end_date, order_code, lines, ledger_posted_for, payment_method FROM mrtv_customers WHERE id = $1",
         [req.params.id]);
       if (!rows.length) return res.status(404).json({ error: "customer not found" });
       const c = rows[0];
@@ -785,7 +870,8 @@ function mountMrtvProvision(app, authRequired) {
       let ledgerPosted = false;
       const lpIso = c.ledger_posted_for ? c.ledger_posted_for.toISOString().slice(0, 10) : null;
       if (lpIso !== newEnd) {
-        const feeC = Math.round(grossC * 0.0275);
+        // Ryan 2026-11-04: crypto renewals carry no processor fee either.
+        const feeC = String(c.payment_method || "").toLowerCase().indexOf("crypto") >= 0 ? 0 : Math.round(grossC * 0.0275);
         const orderCode = c.order_code || ("MR-" + String(c.id).slice(0, 8).toUpperCase());
         await postLedgerOrder({
           customer: c.name, customerId: c.id, date: nyToday(), grossC: grossC, feeC: feeC,

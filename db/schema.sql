@@ -379,6 +379,13 @@ ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS winback_sent_for DATE;
 -- touches. Comma-separated days already sent for the current end_date cycle.
 ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS renewal_touches_sent TEXT NOT NULL DEFAULT '';
 ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS order_code TEXT;
+-- Website-order auto-import (Ryan 2026-11-04): orders from the watchmrtv.com
+-- form land as pending rows for Ryan to review, then one-tap provision.
+-- source: 'manual' (dashboard-added) or 'website' (form webhook).
+-- payment_method: the form's payment choice — drives the ledger fee at
+-- provision time (crypto = direct-to-wallet, no processor fee).
+ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';
+ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS payment_method TEXT;
 -- One-click provisioning (2026-10-29): per-TV panel credentials live in
 -- `lines` (JSONB array: {tv, type, sub, pack, username, password, user_id,
 -- demo, created_at, renewed_at}). needs_manual is a human-readable flag for
