@@ -162,6 +162,14 @@ function computeLedger(events) {
         // negative.
         st.reserveC = Math.max(0, st.reserveC + (p.amount_c | 0));
         break;
+      case "payout":
+        // Manual partner payout (Ryan 2026-11-05): cash a partner already
+        // took (e.g. Mark keeping his half of a sale he collected, Ryan
+        // paying himself). Deducts from that partner's owed box only,
+        // floored at $0. Reversible like any other event.
+        if (p.who === "mark") st.markOwedC = Math.max(0, st.markOwedC - (p.amount_c | 0));
+        else if (p.who === "ryan") st.ryanOwedC = Math.max(0, st.ryanOwedC - (p.amount_c | 0));
+        break;
       default:
         break;
     }
@@ -234,6 +242,10 @@ function describeEvent(e, fx) {
     case "reserve_adjust":
       out.title = "Reserve adjustment";
       out.detail = fmtSignedC(p.amount_c | 0) + (e.note ? " · " + e.note : "");
+      break;
+    case "payout":
+      out.title = "Payout to " + (p.who === "mark" ? "Mark" : "Ryan") + " · " + fmtC(p.amount_c | 0);
+      out.detail = (e.note ? e.note + " · " : "") + "cash already taken, deducted from owed box";
       break;
     default:
       out.title = e.kind;
@@ -376,6 +388,28 @@ function mountMrtvLedger(app, authRequired) {
       const { rows } = await getPool().query(
         "INSERT INTO mrtv_ledger_events (kind, payload, note) VALUES ('reserve_adjust', $1::jsonb, $2) RETURNING id",
         [JSON.stringify({ amount_c: signedC }), cleanStr(b.note, 300) || "reserve adjustment"]);
+      res.json({ ok: true, id: rows[0].id });
+    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
+  });
+
+  // Partner payout (Ryan 2026-11-05): record cash a partner already took,
+  // e.g. Mark keeping his half of a sale he collected, or Ryan paying
+  // himself. Deducts from that partner's owed box only (floored at $0).
+  // Reversible — deleting the event restores the box exactly.
+  app.post("/api/mrtv/ledger/payout", authRequired, async (req, res) => {
+    try {
+      if (needPg(req, res)) return;
+      const b = req.body || {};
+      const who = String(b.who || "");
+      if (who !== "mark" && who !== "ryan") return res.status(400).json({ error: "who must be mark or ryan" });
+      const amountC = dollarsToCents(b.amount);
+      if (amountC === null || amountC <= 0) return res.status(400).json({ error: "amount must be a positive number" });
+      const { state } = await currentState();
+      const owed = who === "mark" ? state.markOwedC : state.ryanOwedC;
+      if (amountC > owed) return res.status(400).json({ error: "payout exceeds what's owed (" + fmtC(owed) + ")" });
+      const { rows } = await getPool().query(
+        "INSERT INTO mrtv_ledger_events (kind, payload, note) VALUES ('payout', $1::jsonb, $2) RETURNING id",
+        [JSON.stringify({ who, amount_c: amountC }), cleanStr(b.note, 300) || "partner payout"]);
       res.json({ ok: true, id: rows[0].id });
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
