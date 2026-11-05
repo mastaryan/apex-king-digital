@@ -754,6 +754,41 @@ function mountMrtvProvision(app, authRequired) {
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
 
+  // Edit an unprovisioned customer order (Ryan 2026-11-05): fix the TV count
+  // / renewal amount when a website order comes in wrong (e.g. customer
+  // picked 2 TVs but meant 5). Only order fields — never lines, plan dates
+  // or provisioning state. Blocked once lines exist (use Renewal paid or
+  // backfill for changes after provisioning).
+  // Body: { tv_count?, renewal_amount_cents?, notes? }
+  app.patch("/api/mrtv/customers/:id", authRequired, async (req, res) => {
+    try {
+      if (needPg(req, res)) return;
+      const b = req.body || {};
+      const { rows } = await getPool().query("SELECT * FROM mrtv_customers WHERE id = $1", [req.params.id]);
+      if (!rows.length) return res.status(404).json({ error: "customer not found" });
+      const c = rows[0];
+      if (Array.isArray(c.lines) && c.lines.length)
+        return res.status(400).json({ error: "customer already provisioned — TV count can't be edited after lines exist" });
+      const sets = [], vals = [];
+      const push = (col, v) => { vals.push(v); sets.push(col + " = $" + vals.length); };
+      if (b.tv_count !== undefined) {
+        const n = parseInt(b.tv_count, 10);
+        if (!Number.isInteger(n) || n < 1 || n > 10) return res.status(400).json({ error: "tv_count must be 1-10" });
+        push("tv_count", n);
+      }
+      if (b.renewal_amount_cents !== undefined) {
+        const amt = Math.round(Number(b.renewal_amount_cents));
+        if (!Number.isFinite(amt) || amt < 0) return res.status(400).json({ error: "renewal_amount_cents must be >= 0" });
+        push("renewal_amount_cents", amt);
+      }
+      if (b.notes !== undefined) push("notes", cleanStr(b.notes, 2000));
+      if (!sets.length) return res.status(400).json({ error: "nothing to update" });
+      vals.push(req.params.id);
+      await getPool().query("UPDATE mrtv_customers SET " + sets.join(", ") + " WHERE id = $" + vals.length, vals);
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
+  });
+
   // Sell from inventory (Ryan 2026-11-04): link EXISTING panel lines to a new
   // customer — no new panel lines created, no new credits spent. One tap:
   // verify each line exists via panel device_info (fail fast) → link →
