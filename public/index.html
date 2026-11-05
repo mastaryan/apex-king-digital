@@ -1824,6 +1824,10 @@ function tvCustomerRow(c, dormant){
         if (!dormant) {
           if (!c.provisionedAt && !lines.length) {
             btns += '<button class="btn primary" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-provision="' + c.id + '" data-tv-tvs="' + (c.tvCount || 1) + '" data-tv-name="' + esc(c.name) + '">Mark paid &amp; provision</button> ';
+            // Ryan 2026-11-05: fix the TV count before provisioning (website
+            // orders come in wrong — e.g. Les Davis picked 2, meant 5).
+            // Same PATCH endpoint as Edit $; blocked once lines exist.
+            btns += '<button class="btn" style="padding:4px 10px;font-size:12px;margin-top:6px" data-tv-tvs-edit="' + c.id + '" data-tv-cur-tvs="' + (c.tvCount || 1) + '" data-tv-name="' + esc(c.name) + '">Edit TVs</button> ';
             // Ryan 2026-11-04: sell existing panel lines (inventory) instead of
             // creating new ones — links the line, emails the logins, posts the
             // ledger sale, no new credits spent.
@@ -2000,6 +2004,18 @@ function mrtvListClick(ev){
     if (v !== '' && !(cents >= 0)) { alert('Enter a valid dollar amount.'); return; }
     api('/api/mrtv/customers/' + amtB, { method: 'PATCH', body: JSON.stringify({ renewal_amount_cents: cents }) }).then(function(r){
       if (!r.ok) { alert('Failed: ' + (r.j.error || 'unknown error')); return; }
+      loadMrtv();
+    });
+  }
+  var tvsEditB = ev.target.getAttribute && ev.target.getAttribute('data-tv-tvs-edit');
+  if (tvsEditB) {
+    var curT = ev.target.getAttribute('data-tv-cur-tvs') || '1';
+    var nv = prompt('How many TVs for ' + ev.target.getAttribute('data-tv-name') + '? (1-10)', curT);
+    if (nv === null) return;
+    nv = parseInt(nv, 10);
+    if (!nv || nv < 1 || nv > 10) { alert('Enter a whole number of TVs, 1-10.'); return; }
+    api('/api/mrtv/customers/' + tvsEditB, { method: 'PATCH', body: JSON.stringify({ tv_count: nv }) }).then(function(r){
+      if (!r.ok) { alert('Failed: ' + ((r.j && r.j.error) || 'unknown error')); return; }
       loadMrtv();
     });
   }
