@@ -1,46 +1,47 @@
 // Apex dashboard — M.R. TV profit-split ledger (Mark + Ryan, 50/50).
 //
-// Event-sourced: every money/credit movement is an event row, and the four
-// boxes + credits remaining are derived by replaying events in seq order.
-// Deleting an event reverses its effect exactly (replay from scratch).
+// Event-sourced: every money/credit movement is an event row, and the
+// boxes are derived by replaying events in seq order. Deleting an event
+// reverses its effect exactly (replay from scratch).
 //
-// "Mark earned" is a fifth derived figure, cumulative and display-only: it
-// counts UP by Mark's waterfall share on every (non-historical) order.
-// Cashing Mark out zeroes the owed box but never resets earned (earned is
-// informational; owed is what can be cleared).
-//
-// Rules (Ryan — current as of 2026-10-29 settlement):
-//  - Reserve: $2.00 per credit sold, taken from each sale's net revenue,
-//    PAID LINES ONLY. Free/comp lines (net $0) generate zero reserve.
-//    The reserve funds the next $150 pack.
-//  - Revenue tracked NET of fees (Cash App ~2.75%).
-//  - Waterfall per new net dollar: (1) $2/credit into reserves ->
-//    (2) straight 50/50 Mark / Ryan. The old 75/25 payback phase ENDED
-//    2026-10-29: Mark was cashed out ($43 real + 4 free yearly TVs as final
-//    settlement for his $50 pack contribution — Ryan's call: he's even),
-//    his box is $0 and the phase is locked (repayAllocated = target).
-//  - 'reserve_adjust' events are manual reserve corrections (e.g. catch-up
-//    for a paid line that never ran the waterfall). Reversible like any
-//    other event.
-//  - 'reset_boxes' zeroes reserves + both owed boxes + Mark earned (Ryan's
-//    fresh start 2026-10-29); lifetime, credits and the locked repay phase
-//    are kept, and future sales run the 50/50 waterfall with $2/credit
-//    reserves from there on out.
+// Rules (Ryan — current as of 2026-11-06 redesign; reserves REMOVED):
+//  - NO reserves. The old $2/credit reserve waterfall is gone (2026-11-06).
+//    Credits are NOT money: they are tracked separately and never counted
+//    in what's owed. Owed is always cash/2 per partner.
+//  - Every order's NET revenue splits straight 50/50 to Mark/Ryan owed
+//    (and to their lifetime earnings). Free/comp lines (net $0) add $0.
+//    Revenue tracked NET of fees. Historical (pre-tracker) orders count
+//    lifetime + credits only — no split.
+//  - A pack purchase splits its cost 50/50 OUT of the owed boxes
+//    (markOwed -= cost/2, ryanOwed -= cost/2) and adds its credits.
+//  - Cash-out / payout record cash a partner already took: they raise
+//    that partner's "paid" figure and reduce their owed box. Bookkeeping
+//    only — real money moves by hand.
+//  - 'reconcile' sets the owed (and optionally earned/paid) boxes to
+//    explicit target values — used to pin the books to Ryan's cash count.
+//  - 'reset_boxes' zeroes owed + earned + paid; lifetime + credits kept.
 //  - All money math in integer cents. No invented figures.
 //
-// Cash-out buttons are BOOKKEEPING ONLY: they zero a box and record the
-// cleared amount. Real money moves by hand (Ryan pays Mark via Cash App
-// whenever he chooses, then clears the box; when reserves hit $150 he
-// buys the next pack manually and clears the reserve box).
-// Either partner can also apply their owed balance toward a pack purchase:
-// the applied amounts come off their owed boxes and reduce what the pack
-// draws from reserves.
+// "Earned" is cumulative and display-only (lifetime earnings per partner).
+// "Paid" is cumulative cash taken (payout + cashout events, plus any
+// reconcile seed). Owed is what's left to pay out. Cashing out zeroes the
+// owed box but never resets earned or paid.
+//
+// Panel credits are LIVE, not replayed: GET /api/mrtv/ledger fetches
+// reseller_info from the panel and returns panelCredits. The replayed
+// credit count stays in the response as ledgerCredits (audit trail only)
+// — the UI must display panelCredits. If the panel call fails,
+// panelCredits is null and the UI says so instead of faking a number.
 "use strict";
 const { getPool, pgEnabled } = require("./pg");
 
-const RESERVE_PER_CREDIT_C = 200;  // $2.00 per credit sold
-const MARK_REPAY_TARGET_C = 5000;  // Mark's $50 contribution toward the $150 pack
-const PACK_COST_C = 15000;         // $150 per 120-credit pack
+const PACK_COST_C = 15000;         // $150 per 120-credit pack (smallest pack)
+const CREDIT_COST_C = 125;         // $1.25 per credit at cost (120-pack rate)
+const PACKS = [
+  { credits: 120, costC: 15000 },
+  { credits: 300, costC: 35000 },
+  { credits: 500, costC: 55000 },
+];
 
 function noPg(res) { res.status(503).json({ error: "unavailable (Postgres not configured)" }); return true; }
 function cleanStr(s, n) { return String(s == null ? "" : s).trim().slice(0, n || 200); }
@@ -54,11 +55,11 @@ function fmtC(c) { return "$" + (c / 100).toFixed(2); }
 function fmtSignedC(c) { return (c < 0 ? "-$" : "+$") + (Math.abs(c) / 100).toFixed(2); }
 
 // Pure: replay events -> { state, effects }.
-// effects[id] = per-event deltas {reserveC, markC, ryanC, credits, lifetimeGrossC}.
+// effects[id] = per-event deltas {markC, ryanC, credits, markEarnedC, ryanEarnedC, markPaidC, ryanPaidC, lifetimeGrossC}.
 // Exported for local verification (node harness, no DB needed).
 function computeLedger(events) {
   const evs = [...(events || [])].sort((a, b) => (a.seq - b.seq) || (a.id < b.id ? -1 : 1));
-  const st = { lifetimeGrossC: 0, reserveC: 0, markOwedC: 0, ryanOwedC: 0, credits: 0, repayAllocatedC: 0, markEarnedC: 0 };
+  const st = { lifetimeGrossC: 0, markOwedC: 0, ryanOwedC: 0, credits: 0, markEarnedC: 0, ryanEarnedC: 0, markPaidC: 0, ryanPaidC: 0 };
   const effects = {};
   for (const e of evs) {
     const before = { ...st };
@@ -67,54 +68,24 @@ function computeLedger(events) {
       case "seed":
         st.credits = p.credits | 0;
         st.lifetimeGrossC = p.lifetime_gross_c | 0;
-        st.reserveC = p.reserve_c | 0;
         st.markOwedC = p.mark_owed_c | 0;
         st.ryanOwedC = p.ryan_owed_c | 0;
-        st.repayAllocatedC = p.repay_allocated_c | 0;
         st.markEarnedC = p.mark_earned_c | 0;
+        st.ryanEarnedC = p.ryan_earned_c | 0;
+        st.markPaidC = p.mark_paid_c | 0;
+        st.ryanPaidC = p.ryan_paid_c | 0;
         break;
       case "order": {
         const grossC = p.gross_c | 0, netC = p.net_c | 0, cr = p.credits | 0;
         st.lifetimeGrossC += grossC;
         st.credits -= cr;
         if (!p.historical) {
-          // Ryan 2026-10-29: reserve ONLY on paid lines. Free/comp lines
-          // (net $0) generate zero reserve. Net is never negative, so the
-          // guard is equivalent to the plain min() for every paid order.
-          // Ryan 2026-11-04: inventory sales post credits=0 (the panel spend
-          // was already booked as credit_use) but still earn reserve on the
-          // credits actually sold, via payload.reserve_credits.
-          const rcr = (p.reserve_credits === undefined || p.reserve_credits === null) ? cr : (p.reserve_credits | 0);
-          const take = netC > 0 ? Math.min(RESERVE_PER_CREDIT_C * rcr, netC) : 0;
-          st.reserveC += take;
-          const rem = netC - take;
-          if (st.repayAllocatedC < MARK_REPAY_TARGET_C) {
-            // 75% Mark / 25% Ryan while Mark's $50 is being repaid.
-            const need = MARK_REPAY_TARGET_C - st.repayAllocatedC;
-            const mark75 = Math.floor(rem * 75 / 100);
-            if (mark75 <= need) {
-              st.markOwedC -= mark75;
-              st.ryanOwedC += rem - mark75;
-              st.repayAllocatedC += mark75;
-              st.markEarnedC += mark75;
-            } else {
-              // This sale finishes Mark's repayment; the leftover of the
-              // remainder splits 50/50 from here on.
-              st.markOwedC -= need;
-              st.repayAllocatedC = MARK_REPAY_TARGET_C;
-              const rest = rem - need;
-              const m = Math.floor(rest / 2);
-              st.markOwedC += m;
-              st.ryanOwedC += rest - m;
-              st.markEarnedC += need + m;
-            }
-          } else {
-            // 50/50 after Mark is repaid.
-            const m = Math.floor(rem / 2);
-            st.markOwedC += m;
-            st.ryanOwedC += rem - m;
-            st.markEarnedC += m;
-          }
+          // Straight 50/50 — no reserve skim (removed 2026-11-06).
+          const m = Math.floor(netC / 2);
+          st.markOwedC += m;
+          st.ryanOwedC += netC - m;
+          st.markEarnedC += m;
+          st.ryanEarnedC += netC - m;
         }
         break;
       }
@@ -122,63 +93,63 @@ function computeLedger(events) {
         st.credits -= p.credits | 0;
         break;
       case "pack": {
-        // Partners can apply their owed balance toward the pack (Ryan
-        // 2026-10-29): the applied amounts come off their owed boxes and
-        // reduce what the pack draws from reserves.
-        const mApp = Math.max(0, Math.min(p.mark_applied_c | 0, st.markOwedC));
-        const rApp = Math.max(0, Math.min(p.ryan_applied_c | 0, st.ryanOwedC));
-        st.markOwedC -= mApp;
-        st.ryanOwedC -= rApp;
+        // Cost splits 50/50 OUT of the owed boxes; credits are added.
+        // No floor: the formula is literal. If a pack is ever bought with
+        // near-empty boxes the boxes go negative — reconcile fixes it.
+        const costC = p.cost_c | 0;
+        const half = Math.floor(costC / 2);
+        st.markOwedC -= half;
+        st.ryanOwedC -= (costC - half);
         st.credits += p.credits_added | 0;
-        // Reserve never goes negative: a pack bought with outside money
-        // just zeroes it (the clear button exists for the same reason).
-        st.reserveC = Math.max(0, st.reserveC - Math.max(0, (p.cost_c | 0) - mApp - rApp));
         break;
       }
       case "cashout_mark":
-        // Cleared box = Mark settled => his contribution is repaid.
+        st.markPaidC += st.markOwedC;
         st.markOwedC = 0;
-        st.repayAllocatedC = MARK_REPAY_TARGET_C;
         break;
       case "cashout_ryan":
+        st.ryanPaidC += st.ryanOwedC;
         st.ryanOwedC = 0;
         break;
-      case "cashout_reserve":
-        st.reserveC = 0;
-        break;
       case "reset_boxes":
-        // Ryan 2026-10-29: fresh start. Zeroes reserves + both owed boxes +
-        // Mark's earned figure. Lifetime sales, credits and the locked
-        // repay phase are untouched. Future sales keep the 50/50 waterfall
-        // with $2/credit reserves from here on out.
-        st.reserveC = 0;
+        // Ryan: fresh start. Zeroes owed + earned + paid. Lifetime sales
+        // and credits are untouched. Future sales split straight 50/50.
         st.markOwedC = 0;
         st.ryanOwedC = 0;
         st.markEarnedC = 0;
-        break;
-      case "reserve_adjust":
-        // Manual reserve correction (Ryan 2026-10-29). Reversible like any
-        // other event. Floored at $0 — a correction can't drive reserves
-        // negative.
-        st.reserveC = Math.max(0, st.reserveC + (p.amount_c | 0));
+        st.ryanEarnedC = 0;
+        st.markPaidC = 0;
+        st.ryanPaidC = 0;
         break;
       case "payout":
-        // Manual partner payout (Ryan 2026-11-05): cash a partner already
-        // took (e.g. Mark keeping his half of a sale he collected, Ryan
-        // paying himself). Deducts from that partner's owed box only,
-        // floored at $0. Reversible like any other event.
-        if (p.who === "mark") st.markOwedC = Math.max(0, st.markOwedC - (p.amount_c | 0));
-        else if (p.who === "ryan") st.ryanOwedC = Math.max(0, st.ryanOwedC - (p.amount_c | 0));
+        // Cash a partner already took. Raises their paid figure and
+        // deducts from their owed box only (floored at $0).
+        if (p.who === "mark") { st.markPaidC += p.amount_c | 0; st.markOwedC = Math.max(0, st.markOwedC - (p.amount_c | 0)); }
+        else if (p.who === "ryan") { st.ryanPaidC += p.amount_c | 0; st.ryanOwedC = Math.max(0, st.ryanOwedC - (p.amount_c | 0)); }
+        break;
+      case "reconcile":
+        // Pin the books to explicit targets (Ryan's cash count). Owed is
+        // always set; earned/paid are set when provided, else untouched.
+        st.markOwedC = p.mark_owed_c | 0;
+        st.ryanOwedC = p.ryan_owed_c | 0;
+        if (p.mark_earned_c !== undefined && p.mark_earned_c !== null) st.markEarnedC = p.mark_earned_c | 0;
+        if (p.ryan_earned_c !== undefined && p.ryan_earned_c !== null) st.ryanEarnedC = p.ryan_earned_c | 0;
+        if (p.mark_paid_c !== undefined && p.mark_paid_c !== null) st.markPaidC = p.mark_paid_c | 0;
+        if (p.ryan_paid_c !== undefined && p.ryan_paid_c !== null) st.ryanPaidC = p.ryan_paid_c | 0;
         break;
       default:
+        // Retired kinds (cashout_reserve, reserve_adjust) are no-ops now —
+        // the reserve concept is gone, so their old effects don't replay.
         break;
     }
     effects[e.id] = {
-      reserveC: st.reserveC - before.reserveC,
       markC: st.markOwedC - before.markOwedC,
       ryanC: st.ryanOwedC - before.ryanOwedC,
       credits: st.credits - before.credits,
       markEarnedC: st.markEarnedC - before.markEarnedC,
+      ryanEarnedC: st.ryanEarnedC - before.ryanEarnedC,
+      markPaidC: st.markPaidC - before.markPaidC,
+      ryanPaidC: st.ryanPaidC - before.ryanPaidC,
       lifetimeGrossC: st.lifetimeGrossC - before.lifetimeGrossC,
     };
   }
@@ -190,12 +161,11 @@ function describeEvent(e, fx) {
   const p = e.payload || {};
   const at = e.created_at ? String(e.created_at).slice(0, 10) : "";
   const out = { id: e.id, kind: e.kind, at, canDelete: e.kind !== "seed", title: "", detail: "" };
-  const wf = (fx && !p.historical) ? (() => {
+  const split = (fx && !p.historical) ? (() => {
     const bits = [];
-    if (fx.reserveC) bits.push("reserve " + fmtSignedC(fx.reserveC));
     if (fx.markC) bits.push("Mark " + fmtSignedC(fx.markC));
     if (fx.ryanC) bits.push("Ryan " + fmtSignedC(fx.ryanC));
-    return bits.length ? " · waterfall: " + bits.join(", ") : "";
+    return bits.length ? " · split: " + bits.join(", ") : "";
   })() : "";
   switch (e.kind) {
     case "seed":
@@ -206,46 +176,49 @@ function describeEvent(e, fx) {
       out.title = (p.customer || "Sale") + (p.date ? " · " + p.date : "");
       out.detail = "Gross " + fmtC(p.gross_c | 0) + " · fee " + fmtC(p.fee_c | 0) +
         " · net " + fmtC(p.net_c | 0) + " · " + (p.credits | 0) + " credits" +
-        (p.plan ? " · " + p.plan : "") + (p.historical ? " · pre-tracker" : "") + wf;
+        (p.plan ? " · " + p.plan : "") + (p.historical ? " · pre-tracker" : "") + split;
       break;
     case "credit_use":
       out.title = "Credit use · " + (p.credits | 0) + " credits";
       out.detail = e.note || p.note || "";
       break;
-    case "pack":
+    case "pack": {
+      const costC = p.cost_c | 0, half = Math.floor(costC / 2);
       out.title = "Pack purchase · +" + (p.credits_added | 0) + " credits";
-      out.detail = "Cost " + fmtC(p.cost_c | 0) + " from reserves" +
-        ((p.mark_applied_c | 0) ? " · Mark applied " + fmtC(p.mark_applied_c | 0) : "") +
-        ((p.ryan_applied_c | 0) ? " · Ryan applied " + fmtC(p.ryan_applied_c | 0) : "") +
+      out.detail = "Cost " + fmtC(costC) + " · " + fmtC(half) + " each from Mark/Ryan owed" +
         (e.note ? " · " + e.note : "");
       break;
+    }
     case "cashout_mark":
       out.title = "Mark cashed out";
-      out.detail = "Cleared " + fmtC(p.cleared_c | 0) + " · bookkeeping only, no money moved";
+      out.detail = "Cleared " + fmtC(p.cleared_c | 0) + " · counts as paid · bookkeeping only, no money moved";
       break;
     case "cashout_ryan":
       out.title = "Ryan cashed out";
-      out.detail = "Cleared " + fmtC(p.cleared_c | 0) + " · bookkeeping only, no money moved";
-      break;
-    case "cashout_reserve":
-      out.title = "Reserve spent";
-      out.detail = "Cleared " + fmtC(p.cleared_c | 0) + " · bookkeeping only, no money moved";
+      out.detail = "Cleared " + fmtC(p.cleared_c | 0) + " · counts as paid · bookkeeping only, no money moved";
       break;
     case "reset_boxes":
       out.title = "Reset all to $0";
-      out.detail = "Cleared reserve " + fmtC(p.cleared_reserve_c | 0) +
-        " · Mark owed " + fmtC(p.cleared_mark_c | 0) +
+      out.detail = "Cleared Mark owed " + fmtC(p.cleared_mark_c | 0) +
         " · Ryan owed " + fmtC(p.cleared_ryan_c | 0) +
-        " · Mark earned " + fmtC(p.cleared_earned_c | 0) +
+        " · Mark earned " + fmtC(p.cleared_mark_earned_c | 0) +
+        " · Ryan earned " + fmtC(p.cleared_ryan_earned_c | 0) +
+        " · Mark paid " + fmtC(p.cleared_mark_paid_c | 0) +
+        " · Ryan paid " + fmtC(p.cleared_ryan_paid_c | 0) +
         " · lifetime + credits kept";
-      break;
-    case "reserve_adjust":
-      out.title = "Reserve adjustment";
-      out.detail = fmtSignedC(p.amount_c | 0) + (e.note ? " · " + e.note : "");
       break;
     case "payout":
       out.title = "Payout to " + (p.who === "mark" ? "Mark" : "Ryan") + " · " + fmtC(p.amount_c | 0);
       out.detail = (e.note ? e.note + " · " : "") + "cash already taken, deducted from owed box";
+      break;
+    case "reconcile":
+      out.title = "Reconcile to cash count";
+      out.detail = "Mark owed " + fmtC(p.mark_owed_c | 0) + " · Ryan owed " + fmtC(p.ryan_owed_c | 0) +
+        ((p.mark_earned_c != null) ? " · Mark earned " + fmtC(p.mark_earned_c | 0) : "") +
+        ((p.ryan_earned_c != null) ? " · Ryan earned " + fmtC(p.ryan_earned_c | 0) : "") +
+        ((p.mark_paid_c != null) ? " · Mark paid " + fmtC(p.mark_paid_c | 0) : "") +
+        ((p.ryan_paid_c != null) ? " · Ryan paid " + fmtC(p.ryan_paid_c | 0) : "") +
+        (e.note ? " · " + e.note : "");
       break;
     default:
       out.title = e.kind;
@@ -263,20 +236,32 @@ function mountMrtvLedger(app, authRequired) {
     return { rows, ...computeLedger(rows) };
   }
 
-  // Full ledger: the four boxes + credits + rules + history (newest first).
+  // Full ledger: the boxes + live panel credits + history (newest first).
+  // panelCredits comes from the panel (reseller_info), NOT the replay.
+  // If the panel call fails, panelCredits is null — the UI says so.
+  // Retired reserve events are hidden from the history (dead concept).
   app.get("/api/mrtv/ledger", authRequired, async (req, res) => {
     try {
       if (needPg(req, res)) return;
       const { rows, state, effects } = await currentState();
+      let panelCredits = null;
+      try {
+        const { getPanelCredits } = require("./mrtv-provision");
+        panelCredits = await getPanelCredits();
+      } catch (e) { console.error("panel credits (ledger):", e.message); }
       res.json({
         boxes: state,
-        rules: { reservePerCreditC: RESERVE_PER_CREDIT_C, markRepayTargetC: MARK_REPAY_TARGET_C, packCostC: PACK_COST_C },
-        events: rows.slice().reverse().map((e) => describeEvent(e, effects[e.id])),
+        panelCredits,
+        ledgerCredits: state.credits,
+        rules: { packCostC: PACK_COST_C, creditCostC: CREDIT_COST_C, packs: PACKS },
+        events: rows.slice().reverse()
+          .filter((e) => e.kind !== "cashout_reserve" && e.kind !== "reserve_adjust")
+          .map((e) => describeEvent(e, effects[e.id])),
       });
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
 
-  // New order: runs the waterfall on save.
+  // New order: net splits straight 50/50 on save.
   app.post("/api/mrtv/ledger/orders", authRequired, async (req, res) => {
     try {
       if (needPg(req, res)) return;
@@ -295,10 +280,6 @@ function mountMrtvLedger(app, authRequired) {
         return res.status(400).json({ error: "credits must be a whole number" });
       const date = /^\d{4}-\d{2}-\d{2}$/.test(String(b.date || "")) ? b.date : nyToday();
       const payload = { customer, date, gross_c: grossC, fee_c: feeC, net_c: netC, credits, plan: cleanStr(b.plan, 60) };
-      // Ryan 2026-11-04: inventory sales earn the $2/credit reserve on credits
-      // already spent (booked as credit_use) — pass reserve_credits with credits=0.
-      const rc = parseInt(b.reserve_credits, 10);
-      if (Number.isInteger(rc) && rc >= 0 && rc <= 100000) payload.reserve_credits = rc;
       const { rows } = await getPool().query(
         "INSERT INTO mrtv_ledger_events (kind, payload, note) VALUES ('order', $1::jsonb, $2) RETURNING id",
         [JSON.stringify(payload), cleanStr(b.note, 300)]);
@@ -306,7 +287,7 @@ function mountMrtvLedger(app, authRequired) {
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
 
-  // Delete any non-seed event (reverses its waterfall exactly via replay).
+  // Delete any non-seed event (reverses its effect exactly via replay).
   app.delete("/api/mrtv/ledger/events/:id", authRequired, async (req, res) => {
     try {
       if (needPg(req, res)) return;
@@ -317,7 +298,7 @@ function mountMrtvLedger(app, authRequired) {
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
 
-  // Pack purchase: credits in, cost out of reserves (floored at $0).
+  // Pack purchase: cost splits 50/50 out of the owed boxes, credits in.
   app.post("/api/mrtv/ledger/packs", authRequired, async (req, res) => {
     try {
       if (needPg(req, res)) return;
@@ -327,17 +308,10 @@ function mountMrtvLedger(app, authRequired) {
         return res.status(400).json({ error: "credits added must be a positive whole number" });
       const costC = dollarsToCents(b.cost === undefined || b.cost === "" ? "150" : b.cost);
       if (costC === null) return res.status(400).json({ error: "cost must be a number" });
-      const markAppC = dollarsToCents(b.mark_applied === undefined || b.mark_applied === "" ? "0" : b.mark_applied);
-      if (markAppC === null) return res.status(400).json({ error: "Mark applied must be a number" });
-      const ryanAppC = dollarsToCents(b.ryan_applied === undefined || b.ryan_applied === "" ? "0" : b.ryan_applied);
-      if (ryanAppC === null) return res.status(400).json({ error: "Ryan applied must be a number" });
-      const { state } = await currentState();
-      if (markAppC > state.markOwedC) return res.status(400).json({ error: "Mark can't apply more than he's owed (" + fmtC(state.markOwedC) + ")" });
-      if (ryanAppC > state.ryanOwedC) return res.status(400).json({ error: "Ryan can't apply more than he's owed (" + fmtC(state.ryanOwedC) + ")" });
-      const payload = { credits_added: creditsAdded, cost_c: costC, mark_applied_c: markAppC, ryan_applied_c: ryanAppC };
+      const payload = { credits_added: creditsAdded, cost_c: costC };
       const { rows } = await getPool().query(
         "INSERT INTO mrtv_ledger_events (kind, payload, note) VALUES ('pack', $1::jsonb, $2) RETURNING id",
-        [JSON.stringify(payload), cleanStr(b.note, 300)]);
+        [JSON.stringify(payload), cleanStr(b.note, 300) || "pack purchase"]);
       res.json({ ok: true, id: rows[0].id });
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
@@ -358,44 +332,27 @@ function mountMrtvLedger(app, authRequired) {
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
 
-  // Cash-out: BOOKKEEPING ONLY. Clears the box to $0, records what was cleared.
+  // Cash-out: BOOKKEEPING ONLY. Clears the box to $0, records what was cleared
+  // (counts as paid). Real money moves by hand.
   app.post("/api/mrtv/ledger/cashout/:who", authRequired, async (req, res) => {
     try {
       if (needPg(req, res)) return;
       const who = String(req.params.who || "");
-      if (!["mark", "ryan", "reserve"].includes(who))
-        return res.status(400).json({ error: "who must be mark, ryan or reserve" });
+      if (!["mark", "ryan"].includes(who))
+        return res.status(400).json({ error: "who must be mark or ryan" });
       const { state } = await currentState();
-      const clearedC = who === "mark" ? state.markOwedC : who === "ryan" ? state.ryanOwedC : state.reserveC;
+      const clearedC = who === "mark" ? state.markOwedC : state.ryanOwedC;
       const { rows } = await getPool().query(
         "INSERT INTO mrtv_ledger_events (kind, payload, note) VALUES ($1, $2::jsonb, $3) RETURNING id",
         ["cashout_" + who, JSON.stringify({ cleared_c: clearedC }), "bookkeeping only — no money moved"]);
       res.json({ ok: true, id: rows[0].id, clearedC });
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
-  // Reserve adjustment: manual correction (Ryan 2026-10-29). Positive adds to
-  // reserves, negative removes (floored at $0 by the replay). Reversible —
-  // deleting the event reverses it exactly.
-  app.post("/api/mrtv/ledger/reserve-adjust", authRequired, async (req, res) => {
-    try {
-      if (needPg(req, res)) return;
-      const b = req.body || {};
-      const rawAmt = String(b.amount == null ? "" : b.amount).trim();
-      const neg = rawAmt.startsWith("-");
-      const amountC = dollarsToCents(neg ? rawAmt.slice(1) : rawAmt);
-      if (amountC === null) return res.status(400).json({ error: "amount must be a number" });
-      const signedC = neg ? -amountC : amountC;
-      const { rows } = await getPool().query(
-        "INSERT INTO mrtv_ledger_events (kind, payload, note) VALUES ('reserve_adjust', $1::jsonb, $2) RETURNING id",
-        [JSON.stringify({ amount_c: signedC }), cleanStr(b.note, 300) || "reserve adjustment"]);
-      res.json({ ok: true, id: rows[0].id });
-    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
-  });
 
   // Partner payout (Ryan 2026-11-05): record cash a partner already took,
   // e.g. Mark keeping his half of a sale he collected, or Ryan paying
-  // himself. Deducts from that partner's owed box only (floored at $0).
-  // Reversible — deleting the event restores the box exactly.
+  // himself. Raises their paid figure, deducts from their owed box only
+  // (floored at $0). Reversible — deleting the event restores the box.
   app.post("/api/mrtv/ledger/payout", authRequired, async (req, res) => {
     try {
       if (needPg(req, res)) return;
@@ -414,19 +371,47 @@ function mountMrtvLedger(app, authRequired) {
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
 
-  // Reset all boxes to $0 (Ryan 2026-10-29): fresh start. Zeroes reserves +
-  // both owed boxes + Mark's earned figure; lifetime sales, credits and the
-  // locked repay phase are kept. Reusable — after any future payout he can
-  // press it again. Reversible: deleting the event restores via replay.
+  // Reconcile (Ryan 2026-11-06): pin the boxes to explicit target values
+  // (Ryan's cash count). Owed is always set; earned/paid are set when
+  // provided, else left at their replayed values. Reversible — deleting
+  // the event restores via replay.
+  app.post("/api/mrtv/ledger/reconcile", authRequired, async (req, res) => {
+    try {
+      if (needPg(req, res)) return;
+      const b = req.body || {};
+      const markOwedC = dollarsToCents(b.mark_owed);
+      const ryanOwedC = dollarsToCents(b.ryan_owed);
+      if (markOwedC === null || ryanOwedC === null)
+        return res.status(400).json({ error: "mark_owed and ryan_owed must be numbers" });
+      const payload = { mark_owed_c: markOwedC, ryan_owed_c: ryanOwedC };
+      const opt = (key, field) => {
+        if (b[key] === undefined || b[key] === "" || b[key] === null) return;
+        const v = dollarsToCents(b[key]);
+        if (v !== null) payload[field] = v;
+      };
+      opt("mark_earned", "mark_earned_c"); opt("ryan_earned", "ryan_earned_c");
+      opt("mark_paid", "mark_paid_c"); opt("ryan_paid", "ryan_paid_c");
+      const { rows } = await getPool().query(
+        "INSERT INTO mrtv_ledger_events (kind, payload, note) VALUES ('reconcile', $1::jsonb, $2) RETURNING id",
+        [JSON.stringify(payload), cleanStr(b.note, 300) || "reconcile to cash count"]);
+      res.json({ ok: true, id: rows[0].id });
+    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
+  });
+
+  // Reset all boxes to $0 (Ryan 2026-10-29): fresh start. Zeroes owed +
+  // earned + paid; lifetime sales and credits are kept. Reusable.
+  // Reversible: deleting the event restores via replay.
   app.post("/api/mrtv/ledger/reset", authRequired, async (req, res) => {
     try {
       if (needPg(req, res)) return;
       const { state } = await currentState();
       const payload = {
-        cleared_reserve_c: state.reserveC,
         cleared_mark_c: state.markOwedC,
         cleared_ryan_c: state.ryanOwedC,
-        cleared_earned_c: state.markEarnedC,
+        cleared_mark_earned_c: state.markEarnedC,
+        cleared_ryan_earned_c: state.ryanEarnedC,
+        cleared_mark_paid_c: state.markPaidC,
+        cleared_ryan_paid_c: state.ryanPaidC,
       };
       const { rows } = await getPool().query(
         "INSERT INTO mrtv_ledger_events (kind, payload, note) VALUES ('reset_boxes', $1::jsonb, $2) RETURNING id",
@@ -436,4 +421,4 @@ function mountMrtvLedger(app, authRequired) {
   });
 }
 
-module.exports = { mountMrtvLedger, computeLedger, describeEvent, RESERVE_PER_CREDIT_C, MARK_REPAY_TARGET_C, PACK_COST_C };
+module.exports = { mountMrtvLedger, computeLedger, describeEvent, PACK_COST_C, CREDIT_COST_C, PACKS };

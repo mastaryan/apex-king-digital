@@ -98,6 +98,14 @@ async function panelCall(params) {
   } finally { clearTimeout(t); }
 }
 
+// Live panel credit balance (reseller_info). Throws NO_KEY / panel errors.
+// Used by the profit-split ledger so credits come from the panel, never
+// from the ledger replay (Ryan 2026-11-06).
+async function getPanelCredits() {
+  const d = await panelCall({ action: "reseller_info" });
+  return Number(d.credits) || 0;
+}
+
 // Returns { pack } or { flag: 'custom-package' } (select-countries: no
 // template, must be provisioned by hand). All four package/adult combos
 // have templates now (36937 "All Countries - Adults" added 2026-10-29).
@@ -1020,4 +1028,4 @@ function mountMrtvProvision(app, authRequired) {
   });
 }
 
-module.exports = { mountMrtvProvision, fillLoginEmail, packFor, LOGIN_TEMPLATE, logEmail, sendTelegramPing };
+module.exports = { mountMrtvProvision, fillLoginEmail, packFor, LOGIN_TEMPLATE, logEmail, sendTelegramPing, getPanelCredits };

@@ -426,7 +426,7 @@ CREATE TABLE IF NOT EXISTS mrtv_email_log (
 CREATE TABLE IF NOT EXISTS mrtv_ledger_events (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   seq        BIGSERIAL,
-  kind       TEXT NOT NULL CHECK (kind IN ('seed','order','credit_use','pack','cashout_mark','cashout_ryan','cashout_reserve','reserve_adjust','reset_boxes')),
+  kind       TEXT NOT NULL CHECK (kind IN ('seed','order','credit_use','pack','cashout_mark','cashout_ryan','cashout_reserve','reserve_adjust','reset_boxes','payout','reconcile')),
   payload    JSONB NOT NULL DEFAULT '{}'::jsonb,
   note       TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -448,6 +448,24 @@ BEGIN
     EXECUTE 'ALTER TABLE mrtv_ledger_events DROP CONSTRAINT ' || quote_ident(cname);
     ALTER TABLE mrtv_ledger_events ADD CONSTRAINT mrtv_ledger_events_kind_check
       CHECK (kind IN ('seed','order','credit_use','pack','cashout_mark','cashout_ryan','cashout_reserve','reserve_adjust','reset_boxes'));
+  END IF;
+END $$;
+-- 2026-11-06: allow 'payout' (partner cash already taken, added 2026-11-05
+-- but never migrated — inserts would fail the CHECK) and 'reconcile'
+-- (pin boxes to Ryan's cash count — profit-split redesign, reserves removed).
+-- Idempotent: no-ops when the live constraint already permits them.
+DO $$
+DECLARE
+  cname text;
+  cdef  text;
+BEGIN
+  SELECT conname, pg_get_constraintdef(oid) INTO cname, cdef FROM pg_constraint
+  WHERE conrelid = 'mrtv_ledger_events'::regclass AND contype = 'c'
+    AND pg_get_constraintdef(oid) LIKE '%kind = ANY%';
+  IF cname IS NOT NULL AND cdef NOT LIKE '%reconcile%' THEN
+    EXECUTE 'ALTER TABLE mrtv_ledger_events DROP CONSTRAINT ' || quote_ident(cname);
+    ALTER TABLE mrtv_ledger_events ADD CONSTRAINT mrtv_ledger_events_kind_check
+      CHECK (kind IN ('seed','order','credit_use','pack','cashout_mark','cashout_ryan','cashout_reserve','reserve_adjust','reset_boxes','payout','reconcile'));
   END IF;
 END $$;
 -- Seed (idempotent; figures verified against the M.R. TV ledger 2026-10-29):

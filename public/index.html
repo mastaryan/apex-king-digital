@@ -188,6 +188,72 @@ footer button:hover{color:var(--silver)}
 .checks label{display:flex;gap:6px;align-items:center;font-size:13.5px;background:#0e0e11;border:1px solid var(--line);border-radius:999px;padding:6px 12px;cursor:pointer}
 pre.report{white-space:pre-wrap;word-break:break-word;background:#0e0e11;border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:13.5px;max-height:50vh;overflow-y:auto;font-family:ui-monospace,Menlo,monospace}
 @media(max-width:600px){body{padding:22px 14px 48px}h1{font-size:24px}.site-head{font-size:16px;padding:15px 16px}.site-body{padding:0 16px 18px}}
+/* M.R. TV profit split (Ryan 2026-11-06 redesign — mockup-matched, no reserves) */
+.tv-rule{display:flex;gap:16px;align-items:flex-start;background:linear-gradient(180deg,rgba(192,138,45,.14),rgba(192,138,45,.07));border:1px solid rgba(192,138,45,.55);border-radius:12px;padding:18px 20px;margin-bottom:16px}
+.tv-rule h2{margin:0 0 4px;font-size:19px;font-weight:800;letter-spacing:-.01em}
+.tv-rule h2 em{font-style:normal;color:var(--gold)}
+.tv-rule p{margin:0;color:#cfd4dd;font-size:15px}
+.tv-rule p strong{color:var(--silver)}
+.tv-rule .never{color:var(--gold);font-weight:700}
+.tv-panels{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:12px}
+.tv-panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;display:flex;flex-direction:column}
+.tv-panel-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}
+.tv-panel-label{font-size:13px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--dim)}
+.tv-live-tag{font-size:11.5px;font-weight:700;color:var(--blue);background:rgba(125,184,255,.12);border:1px solid rgba(125,184,255,.35);padding:3px 8px;border-radius:999px;white-space:nowrap}
+.tv-big{font-size:44px;line-height:1.02;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.tv-big.green{color:var(--green)}
+.tv-big.blue{color:var(--blue)}
+.tv-big-sub{color:var(--dim);font-size:13.5px;margin-top:5px}
+.tv-rows{margin-top:16px;border-top:1px solid var(--line);padding-top:6px}
+.tv-row{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:7px 0}
+.tv-row + .tv-row{border-top:1px dashed rgba(255,255,255,.05)}
+.tv-row .k{color:var(--dim);font-size:14px}
+.tv-row .v{font-weight:700;font-size:16px;font-variant-numeric:tabular-nums;text-align:right}
+.tv-row .v small{display:block;font-weight:500;color:var(--dim);font-size:12px}
+.tv-bar{height:6px;background:#26262d;border-radius:99px;overflow:hidden;margin-top:14px}
+.tv-bar i{display:block;height:100%;background:var(--green);border-radius:99px}
+.tv-bar-note{font-size:12.5px;color:var(--dim);margin-top:7px}
+.tv-save-box{margin-top:auto;padding-top:16px}
+.tv-save-inner{background:rgba(192,138,45,.12);border:1px solid rgba(192,138,45,.5);border-radius:10px;padding:13px 14px}
+.tv-save-inner .k{font-size:12.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--gold)}
+.tv-save-inner .v{font-size:26px;font-weight:800;letter-spacing:-.02em;line-height:1.15;font-variant-numeric:tabular-nums}
+.tv-save-inner p{margin:3px 0 0;font-size:13px;color:#cfd4dd}
+.tv-math{display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:15px 20px;margin-bottom:12px;font-size:15px}
+.tv-math .step{display:flex;align-items:baseline;gap:8px}
+.tv-math .num{font-weight:800;font-size:19px;font-variant-numeric:tabular-nums}
+.tv-math .lbl{color:var(--dim);font-size:13.5px}
+.tv-math .op{color:var(--dim);font-size:19px;font-weight:700}
+.tv-math .sep{width:1px;align-self:stretch;background:var(--line);margin:0 4px}
+.tv-math .note{color:var(--dim);font-size:13.5px}
+.tv-math .note strong{color:var(--blue)}
+.tv-actions{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+.tv-action-card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px}
+.tv-action-card h2{margin:0;font-size:18px;font-weight:750;letter-spacing:-.01em}
+.tv-action-card .desc{margin:5px 0 16px;color:var(--dim);font-size:14px}
+.tv-pack-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.tv-pack-btn{background:#1b1b20;border:1px solid #2e2e36;color:var(--silver);border-radius:11px;padding:14px 10px 12px;text-align:center;position:relative;font-family:inherit;cursor:pointer}
+.tv-pack-btn:hover{border-color:var(--green);background:rgba(52,209,123,.07)}
+.tv-pack-btn:active{transform:scale(.98)}
+.tv-pack-btn .cr{display:block;font-size:21px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.tv-pack-btn .cr small{font-size:13px;font-weight:600;color:var(--dim)}
+.tv-pack-btn .pr{display:block;margin-top:3px;color:var(--green);font-weight:700;font-size:15px;font-variant-numeric:tabular-nums}
+.tv-pack-btn .per{display:block;margin-top:2px;color:var(--dim);font-size:12px;font-variant-numeric:tabular-nums}
+.tv-pack-btn .tag{position:absolute;top:-9px;right:10px;font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;background:var(--gold);color:#14100a;padding:2px 7px;border-radius:99px}
+.tv-use-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.tv-use-btn{background:#1b1b20;border:1px solid #2e2e36;color:var(--silver);border-radius:11px;padding:12px 8px 11px;text-align:center;font-family:inherit;cursor:pointer}
+.tv-use-btn:hover{border-color:var(--blue);background:rgba(125,184,255,.07)}
+.tv-use-btn:active{transform:scale(.98)}
+.tv-use-btn .nm{display:block;font-size:15px;font-weight:700}
+.tv-use-btn .amt{display:block;margin-top:2px;color:var(--blue);font-weight:700;font-size:14px;font-variant-numeric:tabular-nums}
+.tv-custom-row{display:flex;gap:10px;margin-top:12px}
+.tv-custom-input{flex:1;min-width:0;background:#101014;border:1px solid #2e2e36;color:var(--silver);border-radius:10px;padding:11px 13px;font-size:15px;font-variant-numeric:tabular-nums;font-family:inherit}
+.tv-custom-input::placeholder{color:var(--dim)}
+.tv-log-btn{background:var(--blue);border:1px solid var(--blue);color:#0a1220;font-weight:800;border-radius:10px;padding:11px 18px;white-space:nowrap;font-family:inherit;cursor:pointer}
+.tv-log-btn:hover{filter:brightness(1.1)}
+.tv-feedback{min-height:22px;margin:13px 0 0;font-size:13.5px;color:var(--green);font-weight:600}
+.tv-feedback:empty{min-height:0;margin-top:0}
+.tv-cashout-row{margin-top:auto;padding-top:16px}
+@media(max-width:600px){.tv-panels{grid-template-columns:1fr}.tv-actions{grid-template-columns:1fr}.tv-math .sep{display:none}.tv-big{font-size:40px}}
 </style>
 </head>
 <body>
@@ -336,16 +402,50 @@ pre.report{white-space:pre-wrap;word-break:break-word;background:#0e0e11;border:
     <p class="sub">Coming soon. Customers, payments, monthly + yearly invoicing — and whatever integrations turn out to exist.</p>
     <p class="note" style="margin-bottom:14px">⏳ Invoice route is still open: through the TV provider, or through Apex invoicing? Not decided yet — parked here until you call it.</p>
     <h3 style="margin:18px 0 8px">Profit split <span style="color:var(--dim);font-weight:400;font-size:13px">Mark + Ryan · 50/50</span></h3>
-    <div id="tv-boxes" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:6px"></div>
-    <p class="note" id="tv-credits-line" style="margin-bottom:4px"></p>
-    <p class="note" id="tv-panel-line" style="margin-bottom:10px"></p>
-    <div class="mactions" style="justify-content:flex-start;gap:8px;margin-bottom:6px">
-      <button class="btn danger sm" id="tv-cash-mark" type="button">Mark cashed out</button>
-      <button class="btn danger sm" id="tv-cash-ryan" type="button">Ryan cashed out</button>
-      <button class="btn danger sm" id="tv-cash-reserve" type="button">Reserve spent</button>
-      <button class="btn danger sm" id="tv-reset-all" type="button">Reset all to $0</button>
+    <div class="tv-rule" id="tv-rule"></div>
+    <div class="tv-panels" id="tv-panels"></div>
+    <div class="tv-math" id="tv-math"></div>
+    <p class="note" style="margin-bottom:14px">⚠️ Cash-out buttons are <b>bookkeeping only</b> — they move no real money. Cash out a partner's balance when you pay them by hand.</p>
+    <div class="tv-actions">
+      <section class="tv-action-card" aria-label="Record a pack purchase">
+        <h2>Record a pack purchase</h2>
+        <p class="desc">Bought credits from the panel provider? Tap the pack — the credits land on the balance above.</p>
+        <div class="tv-pack-grid">
+          <button type="button" class="tv-pack-btn" data-pack-credits="120" data-pack-cost="150">
+            <span class="cr">120 <small>credits</small></span>
+            <span class="pr">$150</span>
+            <span class="per">$1.25 / credit</span>
+          </button>
+          <button type="button" class="tv-pack-btn" data-pack-credits="300" data-pack-cost="350">
+            <span class="cr">300 <small>credits</small></span>
+            <span class="pr">$350</span>
+            <span class="per">$1.17 / credit</span>
+          </button>
+          <button type="button" class="tv-pack-btn" data-pack-credits="500" data-pack-cost="550">
+            <span class="tag">Best value</span>
+            <span class="cr">500 <small>credits</small></span>
+            <span class="pr">$550</span>
+            <span class="per">$1.10 / credit</span>
+          </button>
+        </div>
+        <p class="tv-feedback" id="tv-pack-feedback" aria-live="polite"></p>
+      </section>
+      <section class="tv-action-card" aria-label="Log a credit use">
+        <h2>Log a credit use</h2>
+        <p class="desc">Credits spent outside a customer signup — demos, comps, and tests come off the same balance.</p>
+        <div class="tv-use-grid">
+          <button type="button" class="tv-use-btn" data-use-credits="1"><span class="nm">1 credit</span><span class="amt">− 1 cr</span></button>
+          <button type="button" class="tv-use-btn" data-use-credits="6"><span class="nm">6 credits</span><span class="amt">− 6 cr</span></button>
+          <button type="button" class="tv-use-btn" data-use-credits="12"><span class="nm">12 credits</span><span class="amt">− 12 cr</span></button>
+        </div>
+        <div class="tv-custom-row">
+          <input class="tv-custom-input" id="tv-use-custom" type="number" inputmode="numeric" min="1" step="1" placeholder="Custom amount (credits)" aria-label="Custom credit amount" />
+          <input class="tv-custom-input" id="tv-use-note" placeholder="Note (optional)" aria-label="Credit use note" style="flex:1.4" />
+          <button type="button" class="tv-log-btn" id="tv-use-add">Log use</button>
+        </div>
+        <p class="tv-feedback" id="tv-use-feedback" aria-live="polite"></p>
+      </section>
     </div>
-    <p class="note" style="margin-bottom:14px">⚠️ Cash-out buttons are <b>bookkeeping only</b> — they move no real money. Either partner can cash out their balance, or apply what they're owed toward the next pack when recording it below. When reserves hit $150, buy the next pack yourself and clear the reserve box. <b>Reset all to $0</b> zeroes the payout boxes for a fresh start (lifetime sales and credits are kept) — new sales keep building reserves 50/50 from there.</p>
     <details style="margin-top:10px">
       <summary style="cursor:pointer;color:var(--dim);font-size:14px">+ Record a manual sale</summary>
       <div style="margin-top:10px">
@@ -363,32 +463,7 @@ pre.report{white-space:pre-wrap;word-break:break-word;background:#0e0e11;border:
           <div class="field"><label>Plan</label><input id="tv-ord-plan" placeholder="monthly / yearly" /></div>
         </div>
         <div class="mactions" style="justify-content:flex-start"><button class="btn primary" id="tv-ord-add" type="button">Record sale</button></div>
-        <p class="note">Saving runs the waterfall: $2.00 per credit to reserves first (paid lines only), then straight 50/50 Mark/Ryan. Revenue is tracked net of fees.</p>
-      </div>
-    </details>
-    <details style="margin-top:10px">
-      <summary style="cursor:pointer;color:var(--dim);font-size:14px">+ Record a pack purchase</summary>
-      <div style="margin-top:10px">
-        <div class="frow">
-          <div class="field"><label>Credits added *</label><input id="tv-pack-credits" inputmode="numeric" placeholder="120" /></div>
-          <div class="field"><label>Cost $ (from reserves)</label><input id="tv-pack-cost" inputmode="decimal" placeholder="150.00" /></div>
-        </div>
-        <div class="frow">
-          <div class="field"><label>Mark applies $ owed (optional)</label><input id="tv-pack-mark" inputmode="decimal" placeholder="0.00" /></div>
-          <div class="field"><label>Ryan applies $ owed (optional)</label><input id="tv-pack-ryan" inputmode="decimal" placeholder="0.00" /></div>
-        </div>
-        <div class="mactions" style="justify-content:flex-start"><button class="btn primary" id="tv-pack-add" type="button">Record pack</button></div>
-        <p class="note">Adds the credits and subtracts the cost from reserves (reserves never go below $0).</p>
-      </div>
-    </details>
-    <details style="margin-top:10px">
-      <summary style="cursor:pointer;color:var(--dim);font-size:14px">+ Log credit use (demo tickets, comps)</summary>
-      <div style="margin-top:10px">
-        <div class="frow">
-          <div class="field"><label>Credits *</label><input id="tv-use-credits" inputmode="numeric" placeholder="5" /></div>
-          <div class="field"><label>Note</label><input id="tv-use-note" placeholder="demo tickets" /></div>
-        </div>
-        <div class="mactions" style="justify-content:flex-start"><button class="btn primary" id="tv-use-add" type="button">Log use</button></div>
+        <p class="note">Saving splits the net straight 50/50 Mark/Ryan. Revenue is tracked net of fees.</p>
       </div>
     </details>
     <details style="margin-top:10px;margin-bottom:18px">
@@ -1677,7 +1752,10 @@ document.getElementById('mu-add').addEventListener('click', function(){
       loadMockups(); loadHome();
     });
 });
-// ---------- M.R. TV profit-split ledger ----------
+// ---------- M.R. TV profit-split ledger (redesigned 2026-11-06) ----------
+// No reserves. Credits come LIVE from the panel (panelCredits), never the
+// replay. Owed is cash/2 per partner; the credit value is shown separately
+// and never counted in what's owed.
 var tvBoxes = null;
 function tvMoney(c){ return '$' + ((c || 0) / 100).toFixed(2); }
 function loadLedger(){
@@ -1685,16 +1763,75 @@ function loadLedger(){
     if (!r.ok) return;
     var b = r.j.boxes || {};
     tvBoxes = b;
-    var card = function(label, cents){
-      return '<div class="lane-row" style="display:block;margin-bottom:0"><div style="font-size:13px;color:var(--dim)">' + esc(label) + '</div><div style="font-size:22px;font-weight:700">' + tvMoney(cents) + '</div></div>';
+    var panelCr = (r.j.panelCredits === undefined || r.j.panelCredits === null) ? null : r.j.panelCredits;
+    var ledgerCr = (r.j.ledgerCredits === undefined || r.j.ledgerCredits === null) ? b.credits : r.j.ledgerCredits;
+    var cashC = (b.markOwedC || 0) + (b.ryanOwedC || 0);
+    var cash = tvMoney(cashC);
+    var each = tvMoney(Math.floor(cashC / 2));
+    var creditValC = panelCr === null ? null : Math.round(panelCr * 125);
+    // --- Rule banner ---
+    document.getElementById('tv-rule').innerHTML =
+      '<div><h2>Credits are <em>NOT</em> money.</h2><p>Cash on hand is <strong>' + cash +
+      '</strong> — plus <strong>' + (panelCr === null ? '—' : panelCr + ' credits') +
+      '</strong> sitting in the panel. What\'s owed is <strong>' + cash + ' ÷ 2 = ' + each + ' each</strong>. The credits are worth <strong>' +
+      (creditValC === null ? '—' : tvMoney(creditValC)) +
+      '</strong> at cost, but that value is tracked separately and is <span class="never">never</span> counted in what\'s owed.</p></div>';
+    // --- Panels ---
+    var pct = function(paid, earned){ return earned > 0 ? Math.max(0, Math.min(100, Math.round(paid / earned * 100))) : 0; };
+    var partnerPanel = function(label, owedC, paidC, earnedC, who){
+      var pc = pct(paidC, earnedC);
+      return '<section class="tv-panel" aria-label="' + esc(label) + '"><div class="tv-panel-head"><span class="tv-panel-label">' + esc(label) + '</span></div>' +
+        '<div class="tv-big green">' + tvMoney(owedC) + '</div><div class="tv-big-sub">Owed now</div>' +
+        '<div class="tv-bar" aria-hidden="true"><i style="width:' + pc + '%"></i></div>' +
+        '<div class="tv-bar-note">' + pc + '% of ' + (who === 'mark' ? 'his' : 'his') + ' lifetime earnings already paid</div>' +
+        '<div class="tv-rows">' +
+        '<div class="tv-row"><span class="k">Already paid</span><span class="v">' + tvMoney(paidC) + '</span></div>' +
+        '<div class="tv-row"><span class="k">Lifetime earnings</span><span class="v">' + tvMoney(earnedC) + '</span></div>' +
+        '</div>' +
+        '<div class="tv-cashout-row"><button class="btn danger sm" data-tv-cashout="' + who + '" type="button">' + (who === 'mark' ? 'Mark' : 'Ryan') + ' cashed out</button></div></section>';
     };
-    document.getElementById('tv-boxes').innerHTML =
-      card('Lifetime earnings', b.lifetimeGrossC) + card('Reserves (next pack)', b.reserveC) +
-      '<div class="lane-row" style="display:block;margin-bottom:0"><div style="font-size:13px;color:var(--dim)">Mark\'s Earned</div><div style="font-size:22px;font-weight:700">' + tvMoney(b.markEarnedC) + '</div><div style="font-size:12px;color:var(--dim)">Mark owed: ' + tvMoney(b.markOwedC) + '</div></div>' +
-      card('Ryan\'s Earned', b.ryanOwedC);
-    document.getElementById('tv-credits-line').textContent = 'Credits remaining: ' + (b.credits == null ? '—' : b.credits);
-    var dis = function(id, cents){ var el = document.getElementById(id); el.disabled = !(cents > 0); el.style.opacity = cents > 0 ? '' : '.45'; };
-    dis('tv-cash-mark', b.markOwedC); dis('tv-cash-ryan', b.ryanOwedC); dis('tv-cash-reserve', b.reserveC);
+    var covers = panelCr === null ? null : Math.max(1, Math.round(panelCr / 30));
+    var coverRev = covers === null ? null : covers * 112.5;
+    var creditsPanel =
+      '<section class="tv-panel" aria-label="Credits and save"><div class="tv-panel-head"><span class="tv-panel-label">Credits &amp; save</span><span class="tv-live-tag">Live from panel</span></div>' +
+      '<div class="tv-big blue">' + (panelCr === null ? '—' : panelCr) + '</div>' +
+      '<div class="tv-big-sub">Current credits — from the panel, not the ledger</div>' +
+      '<div class="tv-rows">' +
+      '<div class="tv-row"><span class="k">Worth at cost</span><span class="v">' + (creditValC === null ? '—' : tvMoney(creditValC)) + '<small>' + (panelCr === null ? '' : panelCr + ' × $1.25') + '</small></span></div>' +
+      '<div class="tv-row"><span class="k">Covers</span><span class="v">' + (covers === null ? '—' : '~' + covers + ' new customers') + '<small>' + (coverRev === null ? '' : '2–3 TVs each · ~$' + Math.round(coverRev) + ' revenue') + '</small></span></div>' +
+      '</div>' +
+      (panelCr === null ? '<p class="note" style="margin:10px 0 0">⚠️ Panel unreachable — ledger replay says ' + (ledgerCr === null || ledgerCr === undefined ? '—' : ledgerCr) + ' credits (audit trail only).</p>' : '') +
+      '<div class="tv-save-box"><div class="tv-save-inner"><div class="k">Recommended save</div><div class="v">$150</div>' +
+      '<p>Next 120-credit pack — set it aside so you can reorder the moment credits run low.</p></div></div></section>';
+    var paidTotal = (b.markPaidC || 0) + (b.ryanPaidC || 0);
+    document.getElementById('tv-panels').innerHTML =
+      '<section class="tv-panel" aria-label="Lifetime earnings"><div class="tv-panel-head"><span class="tv-panel-label">Lifetime earnings</span></div>' +
+      '<div class="tv-big">' + tvMoney(b.lifetimeGrossC) + '</div><div class="tv-big-sub">Lifetime revenue (net)</div>' +
+      '<div class="tv-rows">' +
+      '<div class="tv-row"><span class="k">Customers</span><span class="v" id="tv-cust-count">—</span></div>' +
+      '<div class="tv-row"><span class="k">Provisioned</span><span class="v" id="tv-cust-prov">—</span></div>' +
+      '<div class="tv-row"><span class="k">Paid out so far</span><span class="v">' + tvMoney(paidTotal) + '</span></div>' +
+      '</div></section>' +
+      partnerPanel("Mark's share", b.markOwedC, b.markPaidC, b.markEarnedC, 'mark') +
+      partnerPanel("Ryan's share", b.ryanOwedC, b.ryanPaidC, b.ryanEarnedC, 'ryan') +
+      creditsPanel;
+    // Customer counts (live, from the customers endpoint).
+    api('/api/mrtv/customers').then(function(cr){
+      var cs = (cr.ok && cr.j && cr.j.customers) || [];
+      var prov = cs.filter(function(c){ return !!c.provisionedAt; }).length;
+      var el = document.getElementById('tv-cust-count'); if (el) el.textContent = cs.length;
+      var el2 = document.getElementById('tv-cust-prov'); if (el2) el2.textContent = cs.length ? ('All ' + prov + ' of ' + cs.length) : '—';
+    }).catch(function(){});
+    // --- Math strip ---
+    document.getElementById('tv-math').innerHTML =
+      '<div class="step"><span class="num">' + cash + '</span><span class="lbl">cash to split</span></div>' +
+      '<span class="op" aria-hidden="true">÷</span>' +
+      '<div class="step"><span class="num">2</span><span class="lbl">partners</span></div>' +
+      '<span class="op" aria-hidden="true">=</span>' +
+      '<div class="step"><span class="num" style="color:var(--green)">' + each + '</span><span class="lbl">owed to each</span></div>' +
+      '<div class="sep" aria-hidden="true"></div>' +
+      '<p class="note" style="margin:0">Credits sit alongside the cash: <strong>' + (panelCr === null ? '—' : panelCr + ' credits ≈ ' + tvMoney(creditValC)) + ' at cost</strong> — inventory for future customers, not part of the split.</p>';
+    // --- History ---
     var h = r.j.events || [];
     document.getElementById('tv-history').innerHTML = h.length ? h.map(function(e){
       return '<div class="lane-row"><div class="m"><b>' + esc(e.title) + '</b><br><span style="color:var(--dim);font-size:13px">' + esc(e.detail || '') + '</span></div>' +
@@ -1713,7 +1850,7 @@ function loadLedger(){
   }).catch(function(){});
 }
 function tvCashout(who, label){
-  var amt = tvBoxes ? (who === 'mark' ? tvBoxes.markOwedC : who === 'ryan' ? tvBoxes.ryanOwedC : tvBoxes.reserveC) : 0;
+  var amt = tvBoxes ? (who === 'mark' ? tvBoxes.markOwedC : tvBoxes.ryanOwedC) : 0;
   if (!confirm('Clear the ' + label + ' box (' + tvMoney(amt) + ') to $0?\n\nBookkeeping only — this moves no real money.')) return;
   api('/api/mrtv/ledger/cashout/' + who, { method: 'POST' }).then(function(r){
     if (!r.ok) { alert('Failed: ' + (r.j.error || 'unknown error')); return; }
@@ -1721,17 +1858,11 @@ function tvCashout(who, label){
     loadLedger();
   });
 }
-document.getElementById('tv-cash-mark').addEventListener('click', function(){ tvCashout('mark', 'Mark owed'); });
-document.getElementById('tv-cash-ryan').addEventListener('click', function(){ tvCashout('ryan', 'Ryan owed'); });
-document.getElementById('tv-cash-reserve').addEventListener('click', function(){ tvCashout('reserve', 'Reserves'); });
-document.getElementById('tv-reset-all').addEventListener('click', function(){
-  var b = tvBoxes || {};
-  if (!confirm('Reset ALL payout boxes to $0?\n\nReserves ' + tvMoney(b.reserveC) + ' · Mark owed ' + tvMoney(b.markOwedC) + ' · Ryan owed ' + tvMoney(b.ryanOwedC) + ' · Mark earned ' + tvMoney(b.markEarnedC) + '\n\nLifetime sales (' + tvMoney(b.lifetimeGrossC) + ') and credits (' + (b.credits == null ? '—' : b.credits) + ') are kept. New sales keep the 50/50 split with $2/credit reserves.\n\nBookkeeping only — this moves no real money.')) return;
-  api('/api/mrtv/ledger/reset', { method: 'POST' }).then(function(r){
-    if (!r.ok) { alert('Failed: ' + (r.j.error || 'unknown error')); return; }
-    alert('All boxes reset to $0. Lifetime sales and credits kept.');
-    loadLedger();
-  });
+document.getElementById('tv-panels').addEventListener('click', function(ev){
+  var btn = ev.target.closest ? ev.target.closest('[data-tv-cashout]') : null;
+  if (!btn) return;
+  var who = btn.getAttribute('data-tv-cashout');
+  tvCashout(who, who === 'mark' ? 'Mark owed' : 'Ryan owed');
 });
 var tvNetTouched = false;
 document.getElementById('tv-ord-net').addEventListener('input', function(){ tvNetTouched = true; });
@@ -1759,40 +1890,45 @@ document.getElementById('tv-ord-add').addEventListener('click', function(){
     loadLedger();
   });
 });
-document.getElementById('tv-pack-add').addEventListener('click', function(){
-  var credits = document.getElementById('tv-pack-credits').value.trim();
-  if (!/^\d+$/.test(credits) || credits === '0') { alert('Credits added must be a positive whole number.'); return; }
-  api('/api/mrtv/ledger/packs', { method: 'POST', body: JSON.stringify({
-    credits_added: credits, cost: document.getElementById('tv-pack-cost').value.trim() || '150',
-    mark_applied: document.getElementById('tv-pack-mark').value.trim(),
-    ryan_applied: document.getElementById('tv-pack-ryan').value.trim()
-  })}).then(function(r){
-    if (!r.ok) { alert('Failed: ' + (r.j.error || 'unknown error')); return; }
-    document.getElementById('tv-pack-credits').value = ''; document.getElementById('tv-pack-cost').value = '';
-    document.getElementById('tv-pack-mark').value = ''; document.getElementById('tv-pack-ryan').value = '';
+function tvRecordPack(creditsAdded, cost, note){
+  api('/api/mrtv/ledger/packs', { method: 'POST', body: JSON.stringify({ credits_added: creditsAdded, cost: String(cost), note: note }) }).then(function(r){
+    var fb = document.getElementById('tv-pack-feedback');
+    if (!r.ok) { if (fb) fb.textContent = 'Failed: ' + (r.j.error || 'unknown error'); return; }
+    if (fb) fb.textContent = 'Recorded — ' + creditsAdded + ' credits added ($' + cost + ' split $' + (cost / 2).toFixed(2) + ' each from Mark/Ryan owed).';
     loadLedger();
+  });
+}
+Array.prototype.forEach.call(document.querySelectorAll('.tv-pack-btn'), function(btn){
+  btn.addEventListener('click', function(){
+    var cr = btn.getAttribute('data-pack-credits'), cost = btn.getAttribute('data-pack-cost');
+    tvRecordPack(parseInt(cr, 10), parseFloat(cost), cr + '-credit pack $' + cost);
+  });
+});
+function tvLogUse(credits, note){
+  api('/api/mrtv/ledger/credit-use', { method: 'POST', body: JSON.stringify({ credits: credits, note: note }) }).then(function(r){
+    var fb = document.getElementById('tv-use-feedback');
+    if (!r.ok) { if (fb) fb.textContent = 'Failed: ' + (r.j.error || 'unknown error'); return; }
+    if (fb) fb.textContent = 'Logged — ' + credits + ' credit' + (credits === 1 ? '' : 's') + ' used.';
+    loadLedger();
+  });
+}
+Array.prototype.forEach.call(document.querySelectorAll('.tv-use-btn'), function(btn){
+  btn.addEventListener('click', function(){
+    var cr = parseInt(btn.getAttribute('data-use-credits'), 10);
+    tvLogUse(cr, 'Quick log · ' + cr + ' credit' + (cr === 1 ? '' : 's'));
   });
 });
 document.getElementById('tv-use-add').addEventListener('click', function(){
-  var credits = document.getElementById('tv-use-credits').value.trim();
+  var credits = document.getElementById('tv-use-custom').value.trim();
   if (!/^\d+$/.test(credits) || credits === '0') { alert('Credits must be a positive whole number.'); return; }
-  api('/api/mrtv/ledger/credit-use', { method: 'POST', body: JSON.stringify({
-    credits: credits, note: document.getElementById('tv-use-note').value.trim()
-  })}).then(function(r){
-    if (!r.ok) { alert('Failed: ' + (r.j.error || 'unknown error')); return; }
-    document.getElementById('tv-use-credits').value = ''; document.getElementById('tv-use-note').value = '';
-    loadLedger();
-  });
+  var note = document.getElementById('tv-use-note').value.trim() || ('Custom credit use · ' + credits + ' credits');
+  tvLogUse(parseInt(credits, 10), note);
+  document.getElementById('tv-use-custom').value = ''; document.getElementById('tv-use-note').value = '';
 });
 function loadMrtv(){
   loadLedger();
-  api('/api/mrtv/panel/status').then(function(r){
-    var el = document.getElementById('tv-panel-line');
-    if (!el) return;
-    if (!r.ok || !r.j) { el.textContent = ''; return; }
-    if (!r.j.configured) { el.innerHTML = '⚠️ Panel API key not set — add <b>TVPLUS_API_KEY</b> in the Render env.'; return; }
-    el.textContent = 'Panel credits: ' + r.j.credits + (r.j.low ? ' — running low, top up before provisioning.' : '');
-  }).catch(function(){});
+  // Panel credits now come from GET /api/mrtv/ledger (panelCredits) — no
+  // separate panel/status fetch needed on this screen anymore.
   api('/api/mrtv/customers').then(function(r){
     if (!r.ok) return;
     var box = document.getElementById('mrtv-list');
