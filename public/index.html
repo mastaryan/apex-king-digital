@@ -2214,6 +2214,7 @@ function renderMrtvDetail(d){
     '<dt>Their code</dt><dd><code>' + esc(c.orderCode || '—') + '</code>' + (c.orderCode ? ' <span style="color:var(--dim);font-size:13px">— share it, a friend who signs up with it earns them a free month</span>' : '') + '</dd>' +
     (c.referredBy ? '<dt>Referred by</dt><dd>' + esc(c.referredBy) + (c.referrerName ? ' (' + esc(c.referrerName) + ')' : '') + '</dd>' : '') +
     '<dt>Referred</dt><dd>' + (c.referralCount ? esc(String(c.referralCount)) + ' customer' + (c.referralCount === 1 ? '' : 's') + (c.referrals && c.referrals.length ? ' — ' + c.referrals.map(function(x){ return esc(x.name) + (x.orderCode ? ' (' + esc(x.orderCode) + ')' : ''); }).join(', ') : '') : '0 yet') + '</dd>' +
+    '<dt>Free months</dt><dd>' + esc(String(c.referralMonthsBanked || 0)) + ' banked · ' + esc(String(c.referralMonthsApplied || 0)) + ' used <span style="color:var(--dim);font-size:13px">(auto-applied 30 days before expiry)</span></dd>' +
     '</dl></div>';
   // Payment history
   h += '<div class="tv-detail-sec"><h3>Payment history</h3>';

@@ -392,6 +392,9 @@ ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS payment_method TEXT;
 -- reward trigger/banking is decided later — for now this just tracks who referred whom.
 ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS referred_by TEXT;
 ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS referred_by_customer_id UUID;
+-- Referral free months (Ryan 2026-11-06): how many banked months have been
+-- applied. Unapplied = (customers who used this person's code) - applied.
+ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS referral_months_applied INTEGER NOT NULL DEFAULT 0;
 -- One-click provisioning (2026-10-29): per-TV panel credentials live in
 -- `lines` (JSONB array: {tv, type, sub, pack, username, password, user_id,
 -- demo, created_at, renewed_at}). needs_manual is a human-readable flag for

@@ -544,7 +544,7 @@ function mountHome(app, authRequired) {
       if (needPg(req, res)) return;
       const id = req.params.id;
       const c = await getPool().query(
-        "SELECT id, name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, tivimate_bundle, lines, provisioned_at, needs_manual, created_at, order_code, archived_at, archive_reason, referred_by, referred_by_customer_id FROM mrtv_customers WHERE id = $1",
+        "SELECT id, name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, tivimate_bundle, lines, provisioned_at, needs_manual, created_at, order_code, archived_at, archive_reason, referred_by, referred_by_customer_id, referral_months_applied FROM mrtv_customers WHERE id = $1",
         [id]);
       if (!c.rows.length) return res.status(404).json({ error: "customer not found" });
       const r = c.rows[0];
@@ -575,6 +575,8 @@ function mountHome(app, authRequired) {
         referredByCustomerId: r.referred_by_customer_id || null,
         referrerName: referrerName,
         referralCount: refRows.length,
+        referralMonthsApplied: r.referral_months_applied || 0,
+        referralMonthsBanked: Math.max(0, refRows.length - (r.referral_months_applied || 0)),
         referrals: refRows.map((x) => ({ id: x.id, name: x.name, orderCode: x.order_code || null, startDate: x.start_date ? x.start_date.toISOString().slice(0, 10) : null })),
       };
       const ord = await getPool().query(
@@ -610,7 +612,7 @@ function mountHome(app, authRequired) {
       if (needPg(req, res)) return;
       const today = nyToday();
       const { rows } = await getPool().query(
-        "SELECT id, name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, tivimate_bundle, lines, provisioned_at, needs_manual, created_at, order_code, archived_at, archive_reason, source, payment_method, referred_by, referred_by_customer_id FROM mrtv_customers ORDER BY end_date ASC");
+        "SELECT id, name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, tivimate_bundle, lines, provisioned_at, needs_manual, created_at, order_code, archived_at, archive_reason, source, payment_method, referred_by, referred_by_customer_id, referral_months_applied FROM mrtv_customers ORDER BY end_date ASC");
       // Referral counts (Ryan 2026-11-06): how many customers each person referred.
       const refCount = {};
       for (const r of rows) {
@@ -636,6 +638,8 @@ function mountHome(app, authRequired) {
           referredBy: r.referred_by || null,
           referredByCustomerId: r.referred_by_customer_id || null,
           referralCount: refCount[r.id] || 0,
+          referralMonthsApplied: r.referral_months_applied || 0,
+          referralMonthsBanked: Math.max(0, (refCount[r.id] || 0) - (r.referral_months_applied || 0)),
         })),
         invoiceRouteOpen: true,
         note: "Invoice route is still open: through the TV provider, or through Apex invoicing? Not decided yet.",
@@ -831,6 +835,15 @@ function mountHome(app, authRequired) {
     try {
       if (needPg(req, res)) return;
       const today = nyToday();
+      // ---- referral free months (Ryan 2026-11-06): auto-apply banked months
+      // 30 days before expiry. Runs FIRST so the renewal touches below are
+      // computed against the extended end_date.
+      let referral = { applied: [], skipped: [], errors: [] };
+      try {
+        referral = await require("./mrtv-provision").applyReferralMonths();
+      } catch (e) {
+        referral.errors.push("applyReferralMonths: " + String(e.message || e).slice(0, 200));
+      }
       const { rows } = await getPool().query(
         "SELECT id, name, email, plan, end_date, renewal_amount_cents, renewal_email_sent_for, renewal_touches_sent " +
         "FROM mrtv_customers WHERE renewal_amount_cents IS NOT NULL AND end_date IS NOT NULL");
@@ -953,6 +966,7 @@ function mountHome(app, authRequired) {
         "WHERE archived_at IS NULL AND end_date IS NOT NULL AND end_date < CURRENT_DATE - INTERVAL '31 days' " +
         "RETURNING id, name");
       res.json({ ok: true, sent: sent, skipped: skipped, errors: errors,
+        referral: referral,
         winback: { sent: wbSent, skipped: wbSkipped, errors: wbErrors },
         archived: arch.rows.map((r) => ({ id: r.id, name: r.name })) });
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }

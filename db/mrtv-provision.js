@@ -986,6 +986,106 @@ function mountMrtvProvision(app, authRequired) {
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
 
+  // Referral free months — auto-apply (Ryan 2026-11-06): each referral banks
+  // 1 free month. 30 days before a customer's expiry, the daily renewals/run
+  // applies ALL banked months at once: renews each live panel line in 1-month
+  // steps (sub=1 is always valid; the API only lists 1,3,6,12, so arbitrary
+  // counts are done as repeated 1-month renews), extends the dashboard
+  // end_date by that many months, marks them applied, and emails the customer.
+  // Panel credits are checked first — if there aren't enough, the customer is
+  // skipped (months stay banked) and the error is reported. A failed line
+  // renew aborts that customer with nothing changed. Exported for the daily
+  // renewals/run in home.js. Returns { applied, skipped, errors }.
+  async function applyReferralMonths() {
+    const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    const today = nyToday();
+    const out = { applied: [], skipped: [], errors: [] };
+    try {
+      if (!pgEnabled()) { out.errors.push("no DB"); return out; }
+      const { rows } = await getPool().query(
+        "SELECT id, name, email, plan, end_date, tv_count, lines, referral_months_applied, order_code " +
+        "FROM mrtv_customers WHERE end_date IS NOT NULL AND lines IS NOT NULL");
+      const refCount = {};
+      const rc = await getPool().query(
+        "SELECT referred_by_customer_id, COUNT(*) AS n FROM mrtv_customers WHERE referred_by_customer_id IS NOT NULL GROUP BY referred_by_customer_id");
+      for (const r of rc.rows) refCount[r.referred_by_customer_id] = parseInt(r.n, 10);
+      if (!panelKey()) { out.errors.push("TVPLUS_API_KEY is not set in the Render env"); return out; }
+      const ml = mailer();
+      for (const c of rows) {
+        const endIso = c.end_date ? c.end_date.toISOString().slice(0, 10) : null;
+        if (!endIso) continue;
+        const dl = daysBetween(today, endIso);
+        if (dl <= 0 || dl > 30) continue; // only inside the 30-day window
+        const earned = refCount[c.id] || 0;
+        const applied = c.referral_months_applied || 0;
+        const unapplied = earned - applied;
+        if (unapplied <= 0) continue;
+        const lines = Array.isArray(c.lines) ? c.lines : [];
+        const live = lines.filter((l) => !l.demo);
+        if (!live.length) { out.skipped.push(c.name + ": no provisioned lines"); continue; }
+        const need = live.length * unapplied;
+        let credits = null;
+        try { credits = await getPanelCredits(); } catch (e) { credits = null; }
+        if (credits === null || credits === undefined) { out.errors.push(c.name + ": could not read panel credits"); continue; }
+        if (credits < need) { out.errors.push(c.name + ": only " + credits + " panel credits, need " + need + " for " + unapplied + " free month" + (unapplied === 1 ? "" : "s")); continue; }
+        // Renew each live line in 1-month steps. If any renew fails, abort
+        // this customer with nothing changed (months stay banked).
+        let ok = true, failMsg = "";
+        for (const l of live) {
+          for (let i = 0; i < unapplied; i++) {
+            try {
+              await panelCall({ action: "renew", type: l.type || "m3u", username: l.username, password: l.password, sub: "1" });
+            } catch (e) { ok = false; failMsg = String(e.message || e).slice(0, 120); break; }
+          }
+          if (!ok) break;
+          l.renewed_at = new Date().toISOString();
+        }
+        if (!ok) { out.errors.push(c.name + ": panel renew failed — " + failMsg); continue; }
+        const newEnd = addMonthsISO(endIso, unapplied);
+        await getPool().query("UPDATE mrtv_customers SET lines = $1::jsonb, end_date = $2, referral_months_applied = $3, archived_at = NULL, archive_reason = NULL WHERE id = $4",
+          [JSON.stringify(lines), newEnd, applied + unapplied, c.id]);
+        // Ledger: the free months cost panel credits — record as credit_use so
+        // the ledger tracks the spend (no money moves; it's a referral reward).
+        try {
+          await getPool().query(
+            "INSERT INTO mrtv_ledger_events (kind, payload, note) VALUES ('credit_use', $1::jsonb, $2)",
+            [JSON.stringify({ credits: need }), "Referral free months — " + c.name + " (" + unapplied + " month" + (unapplied === 1 ? "" : "s") + ")"]);
+        } catch (e) { console.error("referral ledger", e.message); }
+        // Notify the customer.
+        const first = String(c.name || "").split(" ")[0] || "there";
+        const subject = "Good news — your referrals earned you " + unapplied + " free month" + (unapplied === 1 ? "" : "s") + " \uD83C\uDF89";
+        const text =
+          "Hi " + first + ",\n\n" +
+          "Your referrals earned you " + unapplied + " free month" + (unapplied === 1 ? "" : "s") + " of M.R. TV — no payment needed.\n\n" +
+          "Your plan now runs through " + fmtLongDate(newEnd) + ".\n\n" +
+          "Keep sharing your referral code (" + (c.order_code || "") + ") and you'll keep earning free months.\n\n" +
+          "Thanks,\nM.R. TV";
+        const html =
+          "<p>Hi " + esc(first) + ",</p>" +
+          "<p>Your referrals earned you <strong>" + unapplied + " free month" + (unapplied === 1 ? "" : "s") + "</strong> of M.R. TV — no payment needed.</p>" +
+          "<p>Your plan now runs through <strong>" + esc(fmtLongDate(newEnd)) + "</strong>.</p>" +
+          "<p>Keep sharing your referral code (<code>" + esc(c.order_code || "") + "</code>) and you'll keep earning free months.</p>" +
+          "<p>Thanks,<br>M.R. TV</p>";
+        if (c.email && ml) {
+          try {
+            const info = await ml.sendMail({ from: loginFrom(), replyTo: "tv@watchmrtv.com", to: c.email, subject: subject, text: text, html: html });
+            try { await logEmail({ kind: "referral", customerId: c.id, to: c.email, subject: subject, info: info, ok: true }); } catch (le) { console.error("email log", le.message); }
+          } catch (e) {
+            const em = String(e.message || e).slice(0, 120);
+            out.errors.push(c.name + ": email failed — " + em);
+            try { await logEmail({ kind: "referral", customerId: c.id, to: c.email, subject: subject, ok: false, error: em }); } catch (le) { console.error("email log", le.message); }
+          }
+        } else if (!c.email) {
+          out.errors.push(c.name + ": no email on file — months applied, no notification sent");
+        }
+        out.applied.push({ id: c.id, name: c.name, months: unapplied, credits: need, newEnd: newEnd });
+      }
+    } catch (e) {
+      out.errors.push("applyReferralMonths: " + String(e.message || e).slice(0, 200));
+    }
+    return out;
+  }
+
   // Demo line (sub=99, ~24h). Ticket mechanics still unconfirmed — the
   // response says so, and the button carries the same note. Accepts
   // { pack, note, send_email }: pack must be one of the four templates
@@ -1051,4 +1151,4 @@ function mountMrtvProvision(app, authRequired) {
   });
 }
 
-module.exports = { mountMrtvProvision, fillLoginEmail, packFor, LOGIN_TEMPLATE, logEmail, sendTelegramPing, getPanelCredits };
+module.exports = { mountMrtvProvision, fillLoginEmail, packFor, LOGIN_TEMPLATE, logEmail, sendTelegramPing, getPanelCredits, applyReferralMonths };
