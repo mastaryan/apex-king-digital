@@ -767,14 +767,23 @@ function mountMrtvProvision(app, authRequired) {
       const { rows } = await getPool().query("SELECT * FROM mrtv_customers WHERE id = $1", [req.params.id]);
       if (!rows.length) return res.status(404).json({ error: "customer not found" });
       const c = rows[0];
-      if (Array.isArray(c.lines) && c.lines.length)
-        return res.status(400).json({ error: "customer already provisioned — TV count can't be edited after lines exist" });
+      // TV count is locked once lines exist (it must match the panel lines),
+      // but name / amount / notes are safe to fix anytime — the name drives
+      // every future email, so a wrong name (e.g. Mark vs Mike Thomas)
+      // has to be correctable after provisioning.
+      const hasLines = Array.isArray(c.lines) && c.lines.length;
       const sets = [], vals = [];
       const push = (col, v) => { vals.push(v); sets.push(col + " = $" + vals.length); };
       if (b.tv_count !== undefined) {
+        if (hasLines) return res.status(400).json({ error: "TV count can't be edited after lines exist" });
         const n = parseInt(b.tv_count, 10);
         if (!Number.isInteger(n) || n < 1 || n > 10) return res.status(400).json({ error: "tv_count must be 1-10" });
         push("tv_count", n);
+      }
+      if (b.name !== undefined) {
+        const nm = cleanStr(b.name, 120);
+        if (!nm) return res.status(400).json({ error: "name required" });
+        push("name", nm);
       }
       if (b.renewal_amount_cents !== undefined) {
         const amt = Math.round(Number(b.renewal_amount_cents));
