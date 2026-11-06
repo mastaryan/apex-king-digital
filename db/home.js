@@ -57,6 +57,19 @@ function parseRenewalAmount(v) {
   return n;
 }
 function fmtCents(c) { return "$" + (c / 100).toFixed(2).replace(/\.00$/, ""); }
+function escapeHtml(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+// Pay button (Ryan 2026-11-04 email-buttons rule: proper button + raw link
+// below as fallback, never a bare long URL). Cash App URL is a constant.
+function payButtonHtml() {
+  return "<p><a href=\"" + MRTV_CASHAPP + "\" style=\"display:inline-block;background:#1a73e8;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:6px;font-weight:bold;font-size:16px;\">Pay Bill</a></p>" +
+    "<p style=\"font-size:12px;color:#666;\">Or copy this link:<br><a href=\"" + MRTV_CASHAPP + "\" style=\"color:#1a73e8;word-break:break-all;\">" + MRTV_CASHAPP + "</a></p>";
+}
 
 // Dates in Ryan's timezone (America/New_York) as YYYY-MM-DD.
 function nyToday() {
@@ -829,6 +842,13 @@ function mountHome(app, authRequired) {
           "Pay here: " + MRTV_CASHAPP + "\n\n" +
           "Just reply to this email once you've paid and I'll get you extended.\n\n" +
           "Thanks,\nRyan — M.R. TV";
+        const html =
+          "<p>Hi " + escapeHtml(first) + ",</p>" +
+          "<p>Your M.R. TV plan (" + escapeHtml(r.plan) + ") renews on " + escapeHtml(fmtLongDate(endIso)) + " — " + dl + " days from now.</p>" +
+          "<p><strong>Amount due: " + escapeHtml(amount) + "</strong></p>" +
+          payButtonHtml() +
+          "<p>Just reply to this email once you've paid and I'll get you extended.</p>" +
+          "<p>Thanks,<br>Ryan — M.R. TV</p>";
         try {
           const info = await mailer.sendMail({
             from: "M.R. TV <tv@watchmrtv.com>",
@@ -836,6 +856,7 @@ function mountHome(app, authRequired) {
             to: r.email,
             subject: "Your M.R. TV renews in " + dl + " days",
             text: text,
+            html: html,
           });
           await getPool().query("UPDATE mrtv_customers SET renewal_email_sent_for = $1, renewal_touches_sent = $2 WHERE id = $3",
             [endIso, sentTouches.concat([String(dl)]).join(","), r.id]);
@@ -877,6 +898,14 @@ function mountHome(app, authRequired) {
           offer.payLine + "\n\n" +
           "Just reply to this email once you've paid and I'll get you set back up.\n\n" +
           "Thanks,\nRyan — M.R. TV";
+        const html =
+          "<p>Hi " + escapeHtml(first) + ",</p>" +
+          "<p>It's been a few weeks since your M.R. TV plan ended, and I'd love to have you back.</p>" +
+          "<p>Here's a comeback offer, just for you: <strong>" + escapeHtml(offer.headline) + "</strong>.<br>" + escapeHtml(offer.detail) + "</p>" +
+          "<p>This offer expires " + escapeHtml(fmtLongDate(expiryIso)) + " — after that it's gone.</p>" +
+          payButtonHtml() +
+          "<p>Just reply to this email once you've paid and I'll get you set back up.</p>" +
+          "<p>Thanks,<br>Ryan — M.R. TV</p>";
         try {
           const info = await mailer.sendMail({
             from: "M.R. TV <tv@watchmrtv.com>",
@@ -884,6 +913,7 @@ function mountHome(app, authRequired) {
             to: r.email,
             subject: subject,
             text: text,
+            html: html,
           });
           await getPool().query("UPDATE mrtv_customers SET winback_sent_for = $1 WHERE id = $2", [endIso, r.id]);
           try { await require("./mrtv-provision").logEmail({ kind: "winback", customerId: r.id, to: r.email, subject: subject, info: info, ok: true }); } catch (le) { console.error("email log", le.message); }
