@@ -544,11 +544,19 @@ function mountHome(app, authRequired) {
       if (needPg(req, res)) return;
       const id = req.params.id;
       const c = await getPool().query(
-        "SELECT id, name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, tivimate_bundle, lines, provisioned_at, needs_manual, created_at, order_code, archived_at, archive_reason FROM mrtv_customers WHERE id = $1",
+        "SELECT id, name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, tivimate_bundle, lines, provisioned_at, needs_manual, created_at, order_code, archived_at, archive_reason, referred_by, referred_by_customer_id FROM mrtv_customers WHERE id = $1",
         [id]);
       if (!c.rows.length) return res.status(404).json({ error: "customer not found" });
       const r = c.rows[0];
       const today = nyToday();
+      // Referrals (Ryan 2026-11-06): who referred this customer, and who they referred.
+      let referrerName = null;
+      if (r.referred_by_customer_id) {
+        const { rows: rr } = await getPool().query("SELECT name FROM mrtv_customers WHERE id = $1", [r.referred_by_customer_id]);
+        if (rr.length) referrerName = rr[0].name;
+      }
+      const { rows: refRows } = await getPool().query(
+        "SELECT id, name, order_code, start_date FROM mrtv_customers WHERE referred_by_customer_id = $1 ORDER BY start_date ASC", [id]);
       const customer = {
         id: r.id, name: r.name, email: r.email, cell: r.cell, plan: r.plan,
         startDate: r.start_date ? r.start_date.toISOString().slice(0, 10) : null,
@@ -563,6 +571,11 @@ function mountHome(app, authRequired) {
         orderCode: r.order_code || null,
         archivedAt: r.archived_at ? r.archived_at.toISOString().slice(0, 10) : null,
         archiveReason: r.archive_reason || null,
+        referredBy: r.referred_by || null,
+        referredByCustomerId: r.referred_by_customer_id || null,
+        referrerName: referrerName,
+        referralCount: refRows.length,
+        referrals: refRows.map((x) => ({ id: x.id, name: x.name, orderCode: x.order_code || null, startDate: x.start_date ? x.start_date.toISOString().slice(0, 10) : null })),
       };
       const ord = await getPool().query(
         "SELECT id, payload, note, created_at FROM mrtv_ledger_events WHERE kind = 'order' AND (payload->>'customer_id' = $1 OR (payload->>'customer_id' IS NULL AND payload->>'customer' = $2)) ORDER BY created_at ASC",
@@ -597,7 +610,12 @@ function mountHome(app, authRequired) {
       if (needPg(req, res)) return;
       const today = nyToday();
       const { rows } = await getPool().query(
-        "SELECT id, name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, tivimate_bundle, lines, provisioned_at, needs_manual, created_at, order_code, archived_at, archive_reason, source, payment_method FROM mrtv_customers ORDER BY end_date ASC");
+        "SELECT id, name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, tivimate_bundle, lines, provisioned_at, needs_manual, created_at, order_code, archived_at, archive_reason, source, payment_method, referred_by, referred_by_customer_id FROM mrtv_customers ORDER BY end_date ASC");
+      // Referral counts (Ryan 2026-11-06): how many customers each person referred.
+      const refCount = {};
+      for (const r of rows) {
+        if (r.referred_by_customer_id) refCount[r.referred_by_customer_id] = (refCount[r.referred_by_customer_id] || 0) + 1;
+      }
       res.json({
         customers: rows.map((r) => ({
           id: r.id, name: r.name, email: r.email, cell: r.cell, plan: r.plan,
@@ -615,6 +633,9 @@ function mountHome(app, authRequired) {
           paymentMethod: r.payment_method || null,
           archivedAt: r.archived_at ? r.archived_at.toISOString().slice(0, 10) : null,
           archiveReason: r.archive_reason || null,
+          referredBy: r.referred_by || null,
+          referredByCustomerId: r.referred_by_customer_id || null,
+          referralCount: refCount[r.id] || 0,
         })),
         invoiceRouteOpen: true,
         note: "Invoice route is still open: through the TV provider, or through Apex invoicing? Not decided yet.",

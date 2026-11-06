@@ -386,6 +386,12 @@ ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS order_code TEXT;
 -- provision time (crypto = direct-to-wallet, no processor fee).
 ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';
 ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS payment_method TEXT;
+-- Referrals (Ryan 2026-11-06): a customer's order code IS their referral code.
+-- referred_by = raw value from the order form (code or name); referred_by_customer_id
+-- = the matched referrer (set when the code matches an order_code). The free-month
+-- reward trigger/banking is decided later — for now this just tracks who referred whom.
+ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS referred_by TEXT;
+ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS referred_by_customer_id UUID;
 -- One-click provisioning (2026-10-29): per-TV panel credentials live in
 -- `lines` (JSONB array: {tv, type, sub, pack, username, password, user_id,
 -- demo, created_at, renewed_at}). needs_manual is a human-readable flag for

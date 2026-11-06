@@ -167,6 +167,9 @@ const LOGIN_TEMPLATE = [
   "",
   "Heads up: mail from our new address sometimes lands in spam or promotions at first \u2014 if a renewal reminder goes missing, check there.",
   "",
+  "YOUR REFERRAL CODE: [MR-####]",
+  "Share it with a friend \u2014 when they sign up with your code, you earn a free month.",
+  "",
   "Thanks for joining M.R. TV \u2014 enjoy!",
   "\u2014 M.R. TV",
   "",
@@ -223,6 +226,7 @@ function buildLoginEmailHtml(o) {
   '<tr><td style="' + font + 'color:#c9ced6;font-size:14px;line-height:1.6;padding:0 0 16px;"><strong style="color:#f3f5f8;">Quick version:</strong> install our free MR TV app on your TV/device \u2014 get it at <a href="https://watchmrtv.com/app/" style="color:#c9ced6;">watchmrtv.com/app</a> (on Samsung, LG, iPhone or newer Vega-OS Firesticks, use IPTV Smarters instead), choose \u201cLogin with Xtream Codes API\u201d (not the M3U playlist option), and type your username, password, and the server URL exactly as shown above. Use one login per TV \u2014 one login plays on one screen at a time.</td></tr>' +
   '<tr><td align="center" style="padding:0 0 8px;"><a href="' + tgUrl + '" style="display:inline-block;' + font + 'font-size:15px;font-weight:bold;color:#0d0e10;background:#c9ced6;border-radius:8px;padding:13px 30px;text-decoration:none;">Join our Telegram group</a></td></tr>' +
   '<tr><td align="center" style="' + font + 'color:#8a919c;font-size:13px;padding:0 0 16px;">between 9am and 9pm EST \u2014 we\u2019ll walk you through it.</td></tr>' +
+  '<tr><td><table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:#17191c;border:1px solid #2c3036;border-radius:10px;margin:0 0 20px;"><tr><td style="padding:16px 18px;' + font + '"><div style="font-size:12px;color:#8a919c;margin-bottom:4px;">Your referral code</div><div style="font-family:monospace,monospace;font-size:20px;font-weight:bold;color:#f3f5f8;word-break:break-all;">' + esc(o.orderCode) + '</div><div style="font-size:13px;color:#8a919c;margin-top:8px;">Share it with a friend \u2014 when they sign up with your code, you earn a free month.</div></td></tr></table></td></tr>' +
   '<tr><td style="' + font + 'color:#8a919c;font-size:13px;line-height:1.6;padding:0 0 20px;border-top:1px solid #2c3036;padding-top:16px;">Heads up: mail from our new address sometimes lands in spam or promotions at first \u2014 if a renewal reminder goes missing, check there.</td></tr>' +
   '<tr><td style="' + font + 'color:#f3f5f8;font-size:15px;padding:0 0 4px;">Thanks for joining M.R. TV \u2014 enjoy!</td></tr>' +
   '<tr><td style="' + font + 'color:#8a919c;font-size:14px;">\u2014 M.R. TV</td></tr>' +
@@ -474,16 +478,31 @@ function mountMrtvProvision(app, authRequired) {
       if (devices) noteParts.push("Devices: " + devices);
       const countries = str(pick("custom_countries"));
       if (countries) noteParts.push("Countries: " + countries);
-      const ref = str(pick("referred_by"));
-      if (ref) noteParts.push("Referred by: " + ref);
+      const ref = cleanStr(str(pick("referred_by")), 120);
+      // Referral match (Ryan 2026-11-06): the referrer's ORDER CODE is their
+      // referral code. If the form value matches a customer's order_code
+      // (case-insensitive, spaces stripped), link it. A plain name stays
+      // unlinked for Ryan to review — the code is the reliable match.
+      let referrerId = null, referrerName = null, refIsCode = false;
+      if (ref) {
+        const code = ref.toUpperCase().replace(/[^A-Z0-9-]/g, "");
+        refIsCode = code.indexOf("MR-") === 0;
+        if (code) {
+          const { rows: m } = await getPool().query(
+            "SELECT id, name FROM mrtv_customers WHERE UPPER(order_code) = $1 LIMIT 1", [code]);
+          if (m.length) { referrerId = m[0].id; referrerName = m[0].name; }
+        }
+      }
+      if (ref) noteParts.push("Referred by: " + ref +
+        (referrerName ? " (matched: " + referrerName + ")" : (refIsCode ? " (code not found)" : "")));
       const deliv = str(pick("delivery_preference"));
       if (deliv) noteParts.push("Delivery: " + deliv);
       const custNotes = str(pick("notes"));
       if (custNotes) noteParts.push("Customer notes: " + custNotes);
       const notes = noteParts.join("\n");
       const { rows } = await getPool().query(
-        "INSERT INTO mrtv_customers (name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, source, payment_method) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'website',$12) RETURNING id",
-        [name, email, cell, plan, start, end, notes, amountC, tvs, pkg, adult, payMethod]);
+        "INSERT INTO mrtv_customers (name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, source, payment_method, referred_by, referred_by_customer_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'website',$12,$13,$14) RETURNING id",
+        [name, email, cell, plan, start, end, notes, amountC, tvs, pkg, adult, payMethod, ref || null, referrerId]);
       const id = rows[0].id;
       const code = formCode || ("MR-" + String(id).slice(0, 8).toUpperCase());
       await getPool().query("UPDATE mrtv_customers SET order_code = $1 WHERE id = $2", [code, id]);
@@ -491,7 +510,7 @@ function mountMrtvProvision(app, authRequired) {
       // Private ping to Ryan's DM only — never the group.
       await sendTelegramPing("🛒 New website order: " + name + " — " + tvs + " TV" + (tvs === 1 ? "" : "s") + ", " + plan +
         (amountC !== null ? ", $" + (amountC / 100).toFixed(2).replace(/\.00$/, "") : "") + " via " + payMethod +
-        ", code " + code + ". Review in the dashboard, then Mark paid & provision.");
+        ", code " + code + (referrerName ? ". Referred by " + referrerName + " (" + ref + ")" : "") + ". Review in the dashboard, then Mark paid & provision.");
       res.json({ ok: true, id: id, order_code: code });
     } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e).slice(0, 300) }); }
   });
