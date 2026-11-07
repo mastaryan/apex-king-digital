@@ -243,6 +243,32 @@ function resendGet(path) {
   });
 }
 
+// Group renewal/win-back candidates by (email, end_date, plan) so one
+// person with several records (e.g. April Metcalf, 2x 2 TVs) gets ONE
+// email listing every record + the combined total, instead of one email
+// per record. Single-record groups behave exactly as before. Pure — no
+// DB, no mailer — so it can be unit-tested directly. (Ryan 2026-11-06)
+function groupRenewalRows(rows) {
+  const groups = new Map();
+  for (const r of rows) {
+    const endIso = r.end_date.toISOString().slice(0, 10);
+    const key = String(r.email || "").toLowerCase() + "|" + endIso + "|" + r.plan;
+    if (!groups.has(key)) groups.set(key, { email: r.email, endIso: endIso, plan: r.plan, rows: [] });
+    groups.get(key).rows.push(r);
+  }
+  return Array.from(groups.values());
+}
+// Sent touches for one row in the current end_date cycle. Same rule the
+// handler used inline: a row with renewal_email_sent_for set but an empty
+// touches list counts as having had the first touch (backfill for the old
+// single-touch tracking).
+function renewalSentTouches(r, endIso) {
+  if (!r.renewal_email_sent_for) return [];
+  if (r.renewal_email_sent_for.toISOString().slice(0, 10) !== endIso) return [];
+  const st = String(r.renewal_touches_sent || "").split(",").filter(Boolean);
+  return st.length ? st : [r.plan === "monthly" ? "5" : "15"];
+}
+
 function mountHome(app, authRequired) {
   const needPg = (req, res) => !pgEnabled() && noPg(res);
 
@@ -845,61 +871,100 @@ function mountHome(app, authRequired) {
         referral.errors.push("applyReferralMonths: " + String(e.message || e).slice(0, 200));
       }
       const { rows } = await getPool().query(
-        "SELECT id, name, email, plan, end_date, renewal_amount_cents, renewal_email_sent_for, renewal_touches_sent " +
+        "SELECT id, name, email, plan, end_date, tv_count, renewal_amount_cents, renewal_email_sent_for, renewal_touches_sent " +
         "FROM mrtv_customers WHERE renewal_amount_cents IS NOT NULL AND end_date IS NOT NULL");
       const mailer = mrtvMailer();
       let sent = 0, skipped = 0;
       const errors = [];
-      for (const r of rows) {
+      // Renewal touches (Ryan 2026-11-01): monthly = 5 days out; yearly =
+      // 15 days + 3 days out. Each touch sends once per end_date cycle —
+      // touches only count when renewal_email_sent_for matches the current
+      // cycle, so a renewed end_date starts fresh automatically.
+      // Rows due at a touch today are grouped by (email, end_date, plan)
+      // first (see groupRenewalRows): one person, several records → ONE
+      // email covering every record + the combined total. Dedup is per
+      // group: a touch is skipped only when every record in the group
+      // already got it.
+      const due = rows.filter(function (r) {
         const endIso = r.end_date.toISOString().slice(0, 10);
         const dl = daysBetween(today, endIso);
-        // Renewal touches (Ryan 2026-11-01): monthly = 5 days out; yearly =
-        // 15 days + 3 days out. Each touch sends once per end_date cycle —
-        // touches only count when renewal_email_sent_for matches the current
-        // cycle, so a renewed end_date starts fresh automatically.
         const touches = r.plan === "monthly" ? [5] : [15, 3];
-        if (touches.indexOf(dl) < 0) continue;
-        let sentTouches = [];
-        if (r.renewal_email_sent_for && r.renewal_email_sent_for.toISOString().slice(0, 10) === endIso) {
-          sentTouches = String(r.renewal_touches_sent || "").split(",").filter(Boolean);
-          if (!sentTouches.length) sentTouches = [r.plan === "monthly" ? "5" : "15"]; // backfill: old single-touch tracking
-        }
-        if (sentTouches.indexOf(String(dl)) >= 0) { skipped++; continue; }
-        if (!r.email) { errors.push(r.name + ": no email on file"); continue; }
+        return touches.indexOf(dl) >= 0;
+      });
+      for (const g of groupRenewalRows(due)) {
+        const dl = daysBetween(today, g.endIso);
+        const allSent = g.rows.every(function (r) { return renewalSentTouches(r, g.endIso).indexOf(String(dl)) >= 0; });
+        if (allSent) { skipped += g.rows.length; continue; }
+        if (!g.email) { g.rows.forEach(function (r) { errors.push(r.name + ": no email on file"); }); continue; }
         if (!mailer) { errors.push("SMTP not configured on server"); break; }
-        const first = String(r.name || "").split(" ")[0] || "there";
-        const amount = fmtCents(r.renewal_amount_cents);
-        const text =
-          "Hi " + first + ",\n\n" +
-          "Your M.R. TV plan (" + r.plan + ") renews on " + fmtLongDate(endIso) + " — " + dl + " days from now.\n\n" +
-          "Amount due: " + amount + "\n" +
-          "Pay here: " + MRTV_CASHAPP + "\n\n" +
-          "Just reply to this email once you've paid and I'll get you extended.\n\n" +
-          "Thanks,\nRyan — M.R. TV";
-        const html =
-          "<p>Hi " + escapeHtml(first) + ",</p>" +
-          "<p>Your M.R. TV plan (" + escapeHtml(r.plan) + ") renews on " + escapeHtml(fmtLongDate(endIso)) + " — " + dl + " days from now.</p>" +
-          "<p><strong>Amount due: " + escapeHtml(amount) + "</strong></p>" +
-          payButtonHtml() +
-          "<p>Just reply to this email once you've paid and I'll get you extended.</p>" +
-          "<p>Thanks,<br>Ryan — M.R. TV</p>";
+        const first = String(g.rows[0].name || "").split(" ")[0] || "there";
+        const totalC = g.rows.reduce(function (s, r) { return s + (r.renewal_amount_cents || 0); }, 0);
+        const total = fmtCents(totalC);
+        let text, html;
+        if (g.rows.length === 1) {
+          const r = g.rows[0];
+          text =
+            "Hi " + first + ",\n\n" +
+            "Your M.R. TV plan (" + r.plan + ") renews on " + fmtLongDate(g.endIso) + " — " + dl + " days from now.\n\n" +
+            "Amount due: " + total + "\n" +
+            "Pay here: " + MRTV_CASHAPP + "\n\n" +
+            "Just reply to this email once you've paid and I'll get you extended.\n\n" +
+            "Thanks,\nRyan — M.R. TV";
+          html =
+            "<p>Hi " + escapeHtml(first) + ",</p>" +
+            "<p>Your M.R. TV plan (" + escapeHtml(r.plan) + ") renews on " + escapeHtml(fmtLongDate(g.endIso)) + " — " + dl + " days from now.</p>" +
+            "<p><strong>Amount due: " + escapeHtml(total) + "</strong></p>" +
+            payButtonHtml() +
+            "<p>Just reply to this email once you've paid and I'll get you extended.</p>" +
+            "<p>Thanks,<br>Ryan — M.R. TV</p>";
+        } else {
+          const lines = g.rows.map(function (r) {
+            const n = r.tv_count || 1;
+            return "• " + n + " TV" + (n > 1 ? "s" : "") + " (" + r.plan + ") — " + fmtCents(r.renewal_amount_cents);
+          }).join("\n");
+          const linesHtml = g.rows.map(function (r) {
+            const n = r.tv_count || 1;
+            return "<li>" + n + " TV" + (n > 1 ? "s" : "") + " (" + escapeHtml(r.plan) + ") — " + escapeHtml(fmtCents(r.renewal_amount_cents)) + "</li>";
+          }).join("");
+          text =
+            "Hi " + first + ",\n\n" +
+            "Your M.R. TV plans renew on " + fmtLongDate(g.endIso) + " — " + dl + " days from now.\n\n" +
+            lines + "\n\n" +
+            "Total due: " + total + "\n" +
+            "Pay here: " + MRTV_CASHAPP + "\n\n" +
+            "Just reply to this email once you've paid and I'll get you extended.\n\n" +
+            "Thanks,\nRyan — M.R. TV";
+          html =
+            "<p>Hi " + escapeHtml(first) + ",</p>" +
+            "<p>Your M.R. TV plans renew on " + escapeHtml(fmtLongDate(g.endIso)) + " — " + dl + " days from now.</p>" +
+            "<ul>" + linesHtml + "</ul>" +
+            "<p><strong>Total due: " + escapeHtml(total) + "</strong></p>" +
+            payButtonHtml() +
+            "<p>Just reply to this email once you've paid and I'll get you extended.</p>" +
+            "<p>Thanks,<br>Ryan — M.R. TV</p>";
+        }
         try {
           const info = await mailer.sendMail({
             from: "M.R. TV <tv@watchmrtv.com>",
             replyTo: "tv@watchmrtv.com",
-            to: r.email,
+            to: g.email,
             subject: "Your M.R. TV renews in " + dl + " days",
             text: text,
             html: html,
           });
-          await getPool().query("UPDATE mrtv_customers SET renewal_email_sent_for = $1, renewal_touches_sent = $2 WHERE id = $3",
-            [endIso, sentTouches.concat([String(dl)]).join(","), r.id]);
-          try { await require("./mrtv-provision").logEmail({ kind: "renewal", customerId: r.id, to: r.email, subject: "Your M.R. TV renews in " + dl + " days", info: info, ok: true }); } catch (le) { console.error("email log", le.message); }
-          sent++;
+          for (const r of g.rows) {
+            const st = renewalSentTouches(r, g.endIso);
+            await getPool().query("UPDATE mrtv_customers SET renewal_email_sent_for = $1, renewal_touches_sent = $2 WHERE id = $3",
+              [g.endIso, st.concat([String(dl)]).join(","), r.id]);
+            try { await require("./mrtv-provision").logEmail({ kind: "renewal", customerId: r.id, to: g.email, subject: "Your M.R. TV renews in " + dl + " days", info: info, ok: true }); } catch (le) { console.error("email log", le.message); }
+          }
+          sent += g.rows.length;
         } catch (e) {
           const em = String(e.message || e).slice(0, 120);
-          errors.push(r.name + ": " + em);
-          try { await require("./mrtv-provision").logEmail({ kind: "renewal", customerId: r.id, to: r.email, subject: "Your M.R. TV renews in " + dl + " days", ok: false, error: em }); } catch (le) { console.error("email log", le.message); }
+          g.rows.forEach(function (r) { errors.push(r.name + ": " + em); });
+          for (const r of g.rows) {
+            try { await require("./mrtv-provision").logEmail({ kind: "renewal", customerId: r.id, to: g.email, subject: "Your M.R. TV renews in " + dl + " days", ok: false, error: em }); } catch (le) { console.error("email log", le.message); }
+          }
         }
       }
       // ---- win-back nudges: one email at day 21 past end ----
@@ -912,20 +977,35 @@ function mountHome(app, authRequired) {
         "FROM mrtv_customers WHERE end_date IS NOT NULL");
       let wbSent = 0, wbSkipped = 0;
       const wbErrors = [];
-      for (const r of wbq.rows) {
-        const endIso = r.end_date.toISOString().slice(0, 10);
-        if (daysBetween(today, endIso) !== -21) continue;
-        if (r.winback_sent_for && r.winback_sent_for.toISOString().slice(0, 10) === endIso) { wbSkipped++; continue; }
-        if (!r.email) { wbErrors.push(r.name + ": no email on file"); continue; }
-        if (r.renewal_amount_cents === null || r.renewal_amount_cents === undefined) { wbErrors.push(r.name + ": no renewal amount on file"); continue; }
+      // Grouped the same way as renewals (see groupRenewalRows): one
+      // person, several records, same end date → one comeback email, with
+      // the offer computed on the combined TVs + amount.
+      const wbDue = wbq.rows.filter(function (r) {
+        return daysBetween(today, r.end_date.toISOString().slice(0, 10)) === -21;
+      });
+      for (const g of groupRenewalRows(wbDue)) {
+        const endIso = g.endIso;
+        const allSent = g.rows.every(function (r) {
+          return r.winback_sent_for && r.winback_sent_for.toISOString().slice(0, 10) === endIso;
+        });
+        if (allSent) { wbSkipped += g.rows.length; continue; }
+        if (!g.email) { g.rows.forEach(function (r) { wbErrors.push(r.name + ": no email on file"); }); continue; }
+        const noAmt = g.rows.filter(function (r) { return r.renewal_amount_cents === null || r.renewal_amount_cents === undefined; });
+        if (noAmt.length) { noAmt.forEach(function (r) { wbErrors.push(r.name + ": no renewal amount on file"); }); continue; }
         if (!mailer) { wbErrors.push("SMTP not configured on server"); break; }
-        const offer = winbackOffer(r);
-        const first = String(r.name || "").split(" ")[0] || "there";
+        const combined = {
+          plan: g.plan,
+          tv_count: g.rows.reduce(function (s, r) { return s + (r.tv_count || 1); }, 0),
+          renewal_amount_cents: g.rows.reduce(function (s, r) { return s + (r.renewal_amount_cents || 0); }, 0),
+        };
+        const offer = winbackOffer(combined);
+        const first = String(g.rows[0].name || "").split(" ")[0] || "there";
         const expiryIso = addDaysISO(endIso, 30);
         const subject = offer.subject;
+        const planWord = g.rows.length > 1 ? "plans" : "plan";
         const text =
           "Hi " + first + ",\n\n" +
-          "It's been a few weeks since your M.R. TV plan ended, and I'd love to have you back.\n\n" +
+          "It's been a few weeks since your M.R. TV " + planWord + " ended, and I'd love to have you back.\n\n" +
           "Here's a comeback offer, just for you: " + offer.headline + ".\n" +
           offer.detail + "\n\n" +
           "This offer expires " + fmtLongDate(expiryIso) + " — after that it's gone.\n\n" +
@@ -934,7 +1014,7 @@ function mountHome(app, authRequired) {
           "Thanks,\nRyan — M.R. TV";
         const html =
           "<p>Hi " + escapeHtml(first) + ",</p>" +
-          "<p>It's been a few weeks since your M.R. TV plan ended, and I'd love to have you back.</p>" +
+          "<p>It's been a few weeks since your M.R. TV " + planWord + " ended, and I'd love to have you back.</p>" +
           "<p>Here's a comeback offer, just for you: <strong>" + escapeHtml(offer.headline) + "</strong>.<br>" + escapeHtml(offer.detail) + "</p>" +
           "<p>This offer expires " + escapeHtml(fmtLongDate(expiryIso)) + " — after that it's gone.</p>" +
           payButtonHtml() +
@@ -944,18 +1024,22 @@ function mountHome(app, authRequired) {
           const info = await mailer.sendMail({
             from: "M.R. TV <tv@watchmrtv.com>",
             replyTo: "tv@watchmrtv.com",
-            to: r.email,
+            to: g.email,
             subject: subject,
             text: text,
             html: html,
           });
-          await getPool().query("UPDATE mrtv_customers SET winback_sent_for = $1 WHERE id = $2", [endIso, r.id]);
-          try { await require("./mrtv-provision").logEmail({ kind: "winback", customerId: r.id, to: r.email, subject: subject, info: info, ok: true }); } catch (le) { console.error("email log", le.message); }
-          wbSent++;
+          for (const r of g.rows) {
+            await getPool().query("UPDATE mrtv_customers SET winback_sent_for = $1 WHERE id = $2", [endIso, r.id]);
+            try { await require("./mrtv-provision").logEmail({ kind: "winback", customerId: r.id, to: g.email, subject: subject, info: info, ok: true }); } catch (le) { console.error("email log", le.message); }
+          }
+          wbSent += g.rows.length;
         } catch (e) {
           const em = String(e.message || e).slice(0, 120);
-          wbErrors.push(r.name + ": " + em);
-          try { await require("./mrtv-provision").logEmail({ kind: "winback", customerId: r.id, to: r.email, subject: subject, ok: false, error: em }); } catch (le) { console.error("email log", le.message); }
+          g.rows.forEach(function (r) { wbErrors.push(r.name + ": " + em); });
+          for (const r of g.rows) {
+            try { await require("./mrtv-provision").logEmail({ kind: "winback", customerId: r.id, to: g.email, subject: subject, ok: false, error: em }); } catch (le) { console.error("email log", le.message); }
+          }
         }
       }
       // ---- auto-archive (Ryan 2026-11-01): the win-back offer expires day 30.
@@ -1040,4 +1124,4 @@ function mountHome(app, authRequired) {
   });
 }
 
-module.exports = { mountHome, buildQueues, APEX_PRODUCTS };
+module.exports = { mountHome, buildQueues, APEX_PRODUCTS, groupRenewalRows, renewalSentTouches };

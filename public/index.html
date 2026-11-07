@@ -253,6 +253,7 @@ pre.report{white-space:pre-wrap;word-break:break-word;background:#0e0e11;border:
 .tv-feedback{min-height:22px;margin:13px 0 0;font-size:13.5px;color:var(--green);font-weight:600}
 .tv-feedback:empty{min-height:0;margin-top:0}
 .tv-cashout-row{margin-top:auto;padding-top:16px}
+.tv-payout-row{display:flex;gap:8px;margin-top:8px}
 @media(max-width:600px){.tv-panels{grid-template-columns:1fr}.tv-actions{grid-template-columns:1fr}.tv-math .sep{display:none}.tv-big{font-size:40px}}
 </style>
 </head>
@@ -1788,7 +1789,8 @@ function loadLedger(){
         '<div class="tv-row"><span class="k">Already paid</span><span class="v">' + tvMoney(paidC) + '</span></div>' +
         '<div class="tv-row"><span class="k">Lifetime earnings</span><span class="v">' + tvMoney(earnedC) + '</span></div>' +
         '</div>' +
-        '<div class="tv-cashout-row"><button class="btn danger sm" data-tv-cashout="' + who + '" type="button">' + (who === 'mark' ? 'Mark' : 'Ryan') + ' cashed out</button></div></section>';
+        '<div class="tv-cashout-row"><button class="btn danger sm" data-tv-cashout="' + who + '" type="button">' + (who === 'mark' ? 'Mark' : 'Ryan') + ' cashed out</button></div>' +
+        '<div class="tv-payout-row"><input class="tv-custom-input" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="Pay out $ amount" data-tv-payout-amt="' + who + '" aria-label="Custom payout amount"><button class="btn sm" data-tv-payout="' + who + '" type="button">Pay out</button></div></section>';
     };
     var covers = panelCr === null ? null : Math.max(1, Math.round(panelCr / 30));
     var coverRev = covers === null ? null : covers * 112.5;
@@ -1859,6 +1861,21 @@ function tvCashout(who, label){
   });
 }
 document.getElementById('tv-panels').addEventListener('click', function(ev){
+  var pbtn = ev.target.closest ? ev.target.closest('[data-tv-payout]') : null;
+  if (pbtn) {
+    var pwho = pbtn.getAttribute('data-tv-payout');
+    var inp = document.querySelector('[data-tv-payout-amt="' + pwho + '"]');
+    var val = inp ? parseFloat(inp.value) : NaN;
+    if (!isFinite(val) || val <= 0) { alert('Enter a payout amount first.'); return; }
+    var plabel = pwho === 'mark' ? 'Mark' : 'Ryan';
+    if (!confirm('Pay out ' + tvMoney(Math.round(val * 100)) + ' to ' + plabel + '?\n\nBookkeeping only — this moves no real money.')) return;
+    api('/api/mrtv/ledger/payout', { method: 'POST', body: JSON.stringify({ who: pwho, amount: val }) }).then(function(r){
+      if (!r.ok) { alert('Failed: ' + (r.j.error || 'unknown error')); return; }
+      alert('Paid out ' + tvMoney(Math.round(val * 100)) + ' to ' + plabel + '. Bookkeeping only — no money moved.');
+      loadLedger();
+    });
+    return;
+  }
   var btn = ev.target.closest ? ev.target.closest('[data-tv-cashout]') : null;
   if (!btn) return;
   var who = btn.getAttribute('data-tv-cashout');

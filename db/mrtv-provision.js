@@ -931,6 +931,68 @@ function mountMrtvProvision(app, authRequired) {
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
 
+  // Merge two customer records into one (Ryan 2026-11-06 — April Metcalf
+  // came in twice: website order + manual record). The survivor (:id)
+  // absorbs the other record's lines; the folded record is deleted.
+  // Panel lines are untouched — same logins, same expiry; only the
+  // dashboard bookkeeping moves, so renewal becomes one tap at the
+  // combined amount. Safeguards: both records must exist, share the same
+  // email, and neither may be archived; the folded record must have no
+  // referrals pointing at it (its order code dies with it). Runs in a
+  // transaction — either the whole merge lands or nothing does.
+  // Body: { fromId } (+ optional renewal_amount_cents override; default
+  // is the sum of both records' renewal amounts).
+  app.post("/api/mrtv/customers/:id/merge", authRequired, async (req, res) => {
+    try {
+      if (needPg(req, res)) return;
+      const b = req.body || {};
+      const fromId = String(b.fromId || "");
+      if (!fromId || fromId === req.params.id) return res.status(400).json({ error: "fromId must be a different customer id" });
+      const { rows: tRows } = await getPool().query("SELECT * FROM mrtv_customers WHERE id = $1", [req.params.id]);
+      if (!tRows.length) return res.status(404).json({ error: "customer not found" });
+      const { rows: fRows } = await getPool().query("SELECT * FROM mrtv_customers WHERE id = $1", [fromId]);
+      if (!fRows.length) return res.status(404).json({ error: "record to merge not found" });
+      const t = tRows[0], f = fRows[0];
+      if (!t.email || String(t.email).toLowerCase() !== String(f.email || "").toLowerCase())
+        return res.status(400).json({ error: "records must share the same email" });
+      if (t.archived_at || f.archived_at) return res.status(400).json({ error: "can't merge archived records" });
+      const tLines = Array.isArray(t.lines) ? t.lines : [];
+      const fLines = Array.isArray(f.lines) ? f.lines : [];
+      const { rows: refs } = await getPool().query(
+        "SELECT id, name FROM mrtv_customers WHERE referred_by_customer_id = $1", [fromId]);
+      if (refs.length) return res.status(400).json({ error: "record has referrals pointing at it (" + refs.map(function (r) { return r.name; }).join(", ") + ")" });
+      const mergedLines = tLines.concat(fLines).map(function (ln, i) {
+        const copy = Object.assign({}, ln);
+        copy.tv = i + 1;
+        return copy;
+      });
+      const amount = b.renewal_amount_cents !== undefined
+        ? Math.round(Number(b.renewal_amount_cents))
+        : (t.renewal_amount_cents || 0) + (f.renewal_amount_cents || 0);
+      if (!Number.isFinite(amount) || amount < 0) return res.status(400).json({ error: "renewal_amount_cents must be >= 0" });
+      const fmt$ = function (c) { return "$" + (c / 100).toFixed(2).replace(/\.00$/, ""); };
+      const mergeNote = "Merged with " + (f.order_code || f.id.slice(0, 8)) + " on " + new Date().toISOString().slice(0, 10) +
+        ": +" + fLines.length + " TVs, renewal " + fmt$(t.renewal_amount_cents || 0) + " → " + fmt$(amount) + ".";
+      const notes = cleanStr(((t.notes || "") + "\n" + mergeNote).trim(), 2000);
+      const applied = (t.referral_months_applied || 0) + (f.referral_months_applied || 0);
+      const client = await getPool().connect();
+      try {
+        await client.query("BEGIN");
+        await client.query(
+          "UPDATE mrtv_customers SET lines = $1::jsonb, tv_count = $2, renewal_amount_cents = $3, notes = $4, referral_months_applied = $5 WHERE id = $6",
+          [JSON.stringify(mergedLines), mergedLines.length, amount, notes, applied, t.id]);
+        await client.query("DELETE FROM mrtv_customers WHERE id = $1", [f.id]);
+        await client.query("COMMIT");
+      } catch (e) {
+        await client.query("ROLLBACK");
+        throw e;
+      } finally {
+        client.release();
+      }
+      res.json({ ok: true, id: t.id, tvCount: mergedLines.length, renewalAmountCents: amount, folded: f.id });
+    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
+  });
+
   // Sell from inventory (Ryan 2026-11-04): link EXISTING panel lines to a new
   // customer — no new panel lines created, no new credits spent. One tap:
   // verify each line exists via panel device_info (fail fast) → link →
