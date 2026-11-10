@@ -83,8 +83,11 @@ function renewalCents(customer) {
 function botToken() { return process.env.MRTV_TG_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || ""; }
 function sessionSecret() { return process.env.MRTV_TG_SESSION_SECRET || botToken(); }
 
-// initData validation per Telegram docs: data_check_string is the sorted
-// key=value pairs (minus hash), HMAC-SHA256 with key = SHA-256(bot token).
+// initData validation per Telegram Mini App docs: data_check_string is the
+// sorted key=value pairs (minus hash), HMAC-SHA256 with secret =
+// HMAC-SHA256(key "WebAppData", message bot token). NOTE: this is NOT the
+// Telegram Login Widget's SHA-256(bot token) — that derivation fails every
+// Mini App signature (found 2026-11-10: bad_init_data on all attempts).
 function validateInitData(initData) {
   const token = botToken();
   if (!token || !initData) return null;
@@ -96,7 +99,7 @@ function validateInitData(initData) {
   const pairs = [];
   for (const [k, v] of params) pairs.push(k + "=" + v);
   pairs.sort();
-  const secretKey = crypto.createHash("sha256").update(token).digest();
+  const secretKey = crypto.createHmac("sha256", "WebAppData").update(token).digest();
   const calc = crypto.createHmac("sha256", secretKey).update(pairs.join("\n")).digest("hex");
   if (calc !== hash) return null;
   let tgUser = null;
