@@ -517,7 +517,7 @@ function mountMrtvProvision(app, authRequired) {
   const MRTV_GROUP_CHAT_ID = -1003857000698;
   const WELCOME_TEXT = "Welcome to Mister TV 📺\nTap a button to get around:";
   const WELCOME_BUTTONS = [
-    [{ text: "🛒 Order Mister TV", url: "https://t.me/WatchMRTV_bot" }],
+    [{ text: "🛒 Order Mister TV", url: "https://t.me/WatchMRTV_bot/MR_TV" }],
     [{ text: "🛠 How-To's", url: "https://t.me/watchmrtv/5" },
      { text: "📺 Channel List", url: "https://t.me/watchmrtv/4" }],
     [{ text: "💬 Support Chat", url: "https://t.me/watchmrtv/1" }],
