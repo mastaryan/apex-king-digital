@@ -51,11 +51,22 @@ const TG_APP_ORIGINS = ["https://watchmrtv.com", "https://mrtv-tv.netlify.app"];
 /* ---------------- helpers ---------------- */
 function cleanStr(s, n) { return String(s || "").trim().slice(0, n || 200); }
 function nyToday() { return new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }); }
+// pg returns DATE columns as JS Date objects; String(date).slice(0,10) gives
+// "Tue Nov 10", which JS parses as year 2001 — every date in the app showed
+// 2001 with negative days left (found 2026-11-10 smoke test). Normalize all
+// dates to ISO yyyy-mm-dd before slicing or formatting.
+function isoDate(v) {
+  if (!v) return "";
+  if (v instanceof Date) return isNaN(v) ? "" : v.toISOString().slice(0, 10);
+  return String(v).slice(0, 10);
+}
 function addMonthsISO(iso, n) { const d = new Date(iso + "T12:00:00Z"); d.setUTCMonth(d.getUTCMonth() + n); return d.toISOString().slice(0, 10); }
 function addYearsISO(iso, n) { const d = new Date(iso + "T12:00:00Z"); d.setUTCFullYear(d.getUTCFullYear() + n); return d.toISOString().slice(0, 10); }
 function daysBetween(a, b) { return Math.round((new Date(b + "T12:00:00Z") - new Date(a + "T12:00:00Z")) / 86400000); }
 function fmtDate(iso) {
-  const p = String(iso || "").split("-");
+  const s = isoDate(iso);
+  if (!s) return "—";
+  const p = s.split("-");
   const mon = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(p[1]) - 1] || "";
   return mon + " " + Number(p[2]) + ", " + p[0];
 }
@@ -66,7 +77,7 @@ function planPriceCents(plan, tvs) {
 }
 // Add-on price for ONE extra TV, per Ryan's 30-day rule.
 function addTvPriceCents(customer) {
-  const start = String(customer.start_date || "").slice(0, 10);
+  const start = isoDate(customer.start_date);
   const within30 = start ? daysBetween(start, nyToday()) <= 30 : true;
   const cur = Number(customer.tv_count) || 1;
   let cents;
@@ -186,12 +197,12 @@ function mailFrom() {
 /* ---------------- customer serialization ---------------- */
 function publicCustomer(r) {
   if (!r) return null;
-  const end = String(r.end_date || "").slice(0, 10);
+  const end = isoDate(r.end_date);
   const daysLeft = end ? daysBetween(nyToday(), end) : null;
   return {
     id: r.id, name: r.name, email: r.email, plan: r.plan,
     tv_count: Number(r.tv_count) || 1,
-    start_date: String(r.start_date || "").slice(0, 10), end_date: end,
+    start_date: isoDate(r.start_date), end_date: end,
     days_left: daysLeft, renewal_amount_cents: r.renewal_amount_cents,
     order_code: r.order_code, package: r.package, adult_ok: !!r.adult_ok,
     tivimate_bundle: !!r.tivimate_bundle,
@@ -269,8 +280,12 @@ function mountMrtvTgApp(app) {
       let body; try { body = await readBody(req); } catch (e) { return res.status(400).json({ error: "bad_request" }); }
       const tgUser = validateInitData(body.initData || "");
       if (!tgUser) return res.status(401).json({ error: "bad_init_data" });
+      // Current subscription = the row with the latest end date (a new unpaid
+      // order must not displace the linked subscription — newest-wins did
+      // exactly that in the 2026-11-10 smoke test, retargeting add-TV/renew
+      // at the test order instead of the yearly sub).
       const { rows } = await getPool().query(
-        "SELECT " + CUSTOMER_COLS + " FROM mrtv_customers WHERE telegram_chat_id = $1 ORDER BY created_at DESC LIMIT 1",
+        "SELECT " + CUSTOMER_COLS + " FROM mrtv_customers WHERE telegram_chat_id = $1 ORDER BY end_date DESC NULLS LAST, created_at ASC LIMIT 1",
         [tgUser.id]);
       const customer = rows[0] || null;
       if (!customer) return res.json({ linked: false, telegram: tgUser });
@@ -290,7 +305,7 @@ function mountMrtvTgApp(app) {
       const email = String(body.email || "").toLowerCase().trim();
       if (!validEmail(email)) return res.status(400).json({ error: "email" });
       const { rows } = await getPool().query(
-        "SELECT id, email FROM mrtv_customers WHERE LOWER(email) = $1 ORDER BY created_at DESC LIMIT 1", [email]);
+        "SELECT id, email FROM mrtv_customers WHERE LOWER(email) = $1 ORDER BY end_date DESC NULLS LAST, created_at DESC LIMIT 1", [email]);
       const target = rows[0];
       if (!target) return res.json({ ok: true }); // same answer either way
       const code = String(Math.floor(100000 + Math.random() * 900000));
@@ -427,9 +442,19 @@ function mountMrtvTgApp(app) {
       const custNotes = cleanStr(o.notes, 500);
       if (custNotes) noteParts.push("Customer notes: " + custNotes);
       const notes = noteParts.join("\n");
+      // Link the new row to this Telegram id ONLY if the chat isn't already
+      // linked to another customer — otherwise a new order steals the link
+      // and the app's subscription/add-TV/renew all retarget at the unpaid
+      // order (2026-11-10 smoke test). A first-time customer still links.
+      let linkChatId = tgUser ? tgUser.id : null;
+      if (linkChatId) {
+        const { rows: already } = await getPool().query(
+          "SELECT id FROM mrtv_customers WHERE telegram_chat_id = $1 LIMIT 1", [linkChatId]);
+        if (already.length) linkChatId = null;
+      }
       const { rows } = await getPool().query(
         "INSERT INTO mrtv_customers (name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, tivimate_bundle, source, payment_method, referred_by, referred_by_customer_id, telegram_chat_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'telegram',$13,$14,$15,$16) RETURNING id",
-        [name, email, cell, plan, start, end, notes, totalC, tvs, pkg, adult, tivimate, payMethod, ref || null, referrerId, tgUser ? tgUser.id : null]);
+        [name, email, cell, plan, start, end, notes, totalC, tvs, pkg, adult, tivimate, payMethod, ref || null, referrerId, linkChatId]);
       const id = rows[0].id;
       const code = codeOk ? formCode : ("MR-" + String(id).slice(0, 8).toUpperCase());
       await getPool().query("UPDATE mrtv_customers SET order_code = $1 WHERE id = $2", [code, id]);
@@ -492,7 +517,7 @@ function mountMrtvTgApp(app) {
       await sendTelegramPing("🔁 Renewal request (Telegram app): " + customer.name + " (" + (customer.order_code || customer.email) + ") — $" +
         (cents / 100).toFixed(2).replace(/\.00$/, "") + ", " + (Number(customer.tv_count) || 1) + " TV" + ((Number(customer.tv_count) || 1) === 1 ? "" : "s") +
         ", " + customer.plan + ", current term through " + fmtDate(customer.end_date) + ". Match payment by order code, then renew.");
-      return res.json({ ok: true, amount_cents: cents, order_code: customer.order_code, plan: customer.plan, tv_count: Number(customer.tv_count) || 1, end_date: String(customer.end_date || "").slice(0, 10) });
+      return res.json({ ok: true, amount_cents: cents, order_code: customer.order_code, plan: customer.plan, tv_count: Number(customer.tv_count) || 1, end_date: isoDate(customer.end_date) });
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 200) }); }
   });
 }
