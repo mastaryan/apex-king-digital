@@ -570,7 +570,7 @@ function mountHome(app, authRequired) {
       if (needPg(req, res)) return;
       const id = req.params.id;
       const c = await getPool().query(
-        "SELECT id, name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, tivimate_bundle, lines, provisioned_at, needs_manual, created_at, order_code, archived_at, archive_reason, referred_by, referred_by_customer_id, referral_months_applied FROM mrtv_customers WHERE id = $1",
+        "SELECT id, name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, lines, provisioned_at, needs_manual, created_at, order_code, archived_at, archive_reason, referred_by, referred_by_customer_id, referral_months_applied FROM mrtv_customers WHERE id = $1",
         [id]);
       if (!c.rows.length) return res.status(404).json({ error: "customer not found" });
       const r = c.rows[0];
@@ -590,7 +590,7 @@ function mountHome(app, authRequired) {
         daysLeft: mrtvDaysLeft(r, today),
         notes: r.notes,
         renewalAmountCents: r.renewal_amount_cents,
-        tvCount: r.tv_count, package: r.package, adultOk: !!r.adult_ok, tivimateBundle: !!r.tivimate_bundle,
+        tvCount: r.tv_count, package: r.package, adultOk: !!r.adult_ok,
         lines: Array.isArray(r.lines) ? r.lines : [],
         provisionedAt: r.provisioned_at ? r.provisioned_at.toISOString() : null,
         needsManual: r.needs_manual || "",
@@ -638,7 +638,7 @@ function mountHome(app, authRequired) {
       if (needPg(req, res)) return;
       const today = nyToday();
       const { rows } = await getPool().query(
-        "SELECT id, name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, tivimate_bundle, lines, provisioned_at, needs_manual, created_at, order_code, archived_at, archive_reason, source, payment_method, referred_by, referred_by_customer_id, referral_months_applied FROM mrtv_customers ORDER BY end_date ASC");
+        "SELECT id, name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, lines, provisioned_at, needs_manual, created_at, order_code, archived_at, archive_reason, source, payment_method, referred_by, referred_by_customer_id, referral_months_applied FROM mrtv_customers ORDER BY end_date ASC");
       // Referral counts (Ryan 2026-11-06): how many customers each person referred.
       const refCount = {};
       for (const r of rows) {
@@ -652,7 +652,7 @@ function mountHome(app, authRequired) {
           daysLeft: mrtvDaysLeft(r, today),
           notes: r.notes,
           renewalAmountCents: r.renewal_amount_cents,
-          tvCount: r.tv_count, package: r.package, adultOk: !!r.adult_ok, tivimateBundle: !!r.tivimate_bundle,
+          tvCount: r.tv_count, package: r.package, adultOk: !!r.adult_ok,
           lines: Array.isArray(r.lines) ? r.lines : [],
           provisionedAt: r.provisioned_at ? r.provisioned_at.toISOString() : null,
           needsManual: r.needs_manual || "",
@@ -689,10 +689,9 @@ function mountHome(app, authRequired) {
       const tvs = Math.max(1, Math.min(10, parseInt(b.tv_count, 10) || 1));
       const pkg = ["usa", "all", "custom"].indexOf(b.package) >= 0 ? b.package : "usa";
       const adult = b.adult_ok === true || b.adult_ok === "true" || b.adult_ok === 1;
-      const tiv = b.tivimate_bundle === true || b.tivimate_bundle === "true" || b.tivimate_bundle === 1;
       const { rows } = await getPool().query(
-        "INSERT INTO mrtv_customers (name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, tivimate_bundle) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id, start_date, end_date",
-        [name, email || null, cell || null, plan, start, end, cleanStr(b.notes, 1000) || "", amt, tvs, pkg, adult, tiv]);
+        "INSERT INTO mrtv_customers (name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id, start_date, end_date",
+        [name, email || null, cell || null, plan, start, end, cleanStr(b.notes, 1000) || "", amt, tvs, pkg, adult]);
       const newCode = "MR-" + String(rows[0].id).slice(0, 8).toUpperCase();
       await getPool().query("UPDATE mrtv_customers SET order_code = $1 WHERE id = $2", [newCode, rows[0].id]);
       res.json({
@@ -741,7 +740,6 @@ function mountHome(app, authRequired) {
         push("package", b.package);
       }
       if (b.adult_ok !== undefined) push("adult_ok", !!b.adult_ok);
-      if (b.tivimate_bundle !== undefined) push("tivimate_bundle", !!b.tivimate_bundle);
       if (b.needs_manual !== undefined) push("needs_manual", cleanStr(b.needs_manual, 500) || "");
       if (!sets.length) return res.status(400).json({ error: "nothing to update" });
       vals.push(req.params.id);

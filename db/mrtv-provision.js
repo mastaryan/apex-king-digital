@@ -177,7 +177,7 @@ const LOGIN_TEMPLATE = [
 ].join("\n");
 
 // Pure function (unit-testable). o: { firstName, planDesc, expiry, tvLines,
-// serverUrl, tivimateEmail|null, orderCode }.
+// serverUrl, orderCode }.
 function fillLoginEmail(tpl, o) {
   const m = tpl.match(/^SUBJECT:\s*(.*)$/m);
   const subject = (m ? m[1] : "Your M.R. TV logins are ready").trim();
@@ -724,7 +724,6 @@ function mountMrtvProvision(app, authRequired) {
         expiry: cleanStr(b.expiry, 40) || "",
         tvLines: tvLines,
         serverUrl: cleanStr(b.serverUrl, 120) || lineServer(),
-        tivimateEmail: null,
         orderCode: cleanStr(b.orderCode, 24) || "MR-TEST",
       });
       const ml = mailer();
@@ -818,7 +817,7 @@ function mountMrtvProvision(app, authRequired) {
         const filled = fillLoginEmail(LOGIN_TEMPLATE, {
           firstName: firstName, planDesc: planDesc, expiry: fmtLongDate(endIso),
           tvLines: lines, serverUrl: lineServer(),
-          tivimateEmail: c.tivimate_bundle ? c.email : null, orderCode: orderCode,
+          orderCode: orderCode,
         });
         const ml = mailer();
         if (!ml) {
@@ -900,7 +899,7 @@ function mountMrtvProvision(app, authRequired) {
     const filled = fillLoginEmail(LOGIN_TEMPLATE, {
       firstName: firstName, planDesc: planDesc, expiry: fmtLongDate(endIso),
       tvLines: lines, serverUrl: serverUrl,
-      tivimateEmail: c.tivimate_bundle ? c.email : null, orderCode: orderCode,
+      orderCode: orderCode,
     });
     try {
       const info = await ml.sendMail({
@@ -1263,7 +1262,7 @@ function mountMrtvProvision(app, authRequired) {
             planDesc: "Demo — 24 hours",
             expiry: fmtLongDate(addDaysISO(nyToday(), 1)),
             tvLines: [{ username: username, password: password }],
-            serverUrl: lineServer(), tivimateEmail: null,
+            serverUrl: lineServer(),
             orderCode: c.order_code || ("MR-" + String(c.id).slice(0, 8).toUpperCase()),
           });
           const ml = mailer();

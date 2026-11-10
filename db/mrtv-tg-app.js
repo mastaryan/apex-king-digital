@@ -25,7 +25,7 @@
 //
 // Pricing lives here AND in the mini app (client shows, server verifies):
 //   YEARLY {1:80, 2:100, 3:125, 4:150, 5:175}, MONTHLY {1:10, 2:15, 3:18,
-//   4:21, 5:24}, TiviMate +$30 one-time. Prices are ON HOLD per Ryan —
+//   4:21, 5:24}. Prices are ON HOLD per Ryan —
 //   change them in BOTH places if he ever moves them.
 // Add-on rule (Ryan): TV added within 30 days of start = bundle price
 //   (monthly 2nd +$5, 3rd+ +$3; yearly 2nd +$20, 3rd+ +$25). After 30 days
@@ -43,7 +43,6 @@ const { getPool, pgEnabled } = require("./pg");
 
 const YEARLY = { 1: 8000, 2: 10000, 3: 12500, 4: 15000, 5: 17500 };
 const MONTHLY = { 1: 1000, 2: 1500, 3: 1800, 4: 2100, 5: 2400 };
-const TIVIMATE_CENTS = 3000;
 const CASH_TAG = "$ApexKingDigital";
 const ZELLE_HANDLE = "info@helixkinglabs.com";
 const TG_APP_ORIGINS = ["https://watchmrtv.com", "https://mrtv-tv.netlify.app"];
@@ -205,12 +204,11 @@ function publicCustomer(r) {
     start_date: isoDate(r.start_date), end_date: end,
     days_left: daysLeft, renewal_amount_cents: r.renewal_amount_cents,
     order_code: r.order_code, package: r.package, adult_ok: !!r.adult_ok,
-    tivimate_bundle: !!r.tivimate_bundle,
     lines_count: Array.isArray(r.lines) ? r.lines.length : 0,
     provisioned_at: r.provisioned_at || null,
   };
 }
-const CUSTOMER_COLS = "id, name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, tivimate_bundle, lines, provisioned_at, needs_manual, created_at, order_code, source, payment_method, referred_by, referred_by_customer_id, referral_months_applied, telegram_chat_id";
+const CUSTOMER_COLS = "id, name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, lines, provisioned_at, needs_manual, created_at, order_code, source, payment_method, referred_by, referred_by_customer_id, referral_months_applied, telegram_chat_id";
 
 /* ---------------- rate limiting (in-memory, per IP+route) ---------------- */
 const _rl = new Map();
@@ -404,8 +402,7 @@ function mountMrtvTgApp(app) {
       if (!email || !validEmail(email)) return res.status(400).json({ error: "email" });
       const tvs = Math.max(1, Math.min(5, parseInt(o.connections, 10) || 1));
       const plan = String(o.plan || "monthly").toLowerCase().indexOf("month") >= 0 ? "monthly" : "yearly";
-      const tivimate = !!o.tivimate;
-      const totalC = planPriceCents(plan, tvs) + (tivimate ? TIVIMATE_CENTS : 0);
+      const totalC = planPriceCents(plan, tvs);
       const pkgRaw = String(o.package || "usa").toLowerCase();
       const pkg = pkgRaw === "all" ? "all" : (pkgRaw === "custom" ? "custom" : "usa");
       const adult = !!o.adult;
@@ -421,7 +418,6 @@ function mountMrtvTgApp(app) {
       const noteParts = ["📱 TELEGRAM MINI APP ORDER — REVIEW BEFORE PROVISIONING"];
       noteParts.push("Payment: " + payMethod);
       noteParts.push("Total due: $" + (totalC / 100).toFixed(2).replace(/\.00$/, ""));
-      if (tivimate) noteParts.push("TiviMate bundle: yes (+$30)");
       const devices = Array.isArray(o.devices) ? o.devices.join(", ") : cleanStr(o.devices, 200);
       if (devices) noteParts.push("Devices: " + devices);
       const countries = cleanStr(o.custom_countries, 200);
@@ -453,14 +449,14 @@ function mountMrtvTgApp(app) {
         if (already.length) linkChatId = null;
       }
       const { rows } = await getPool().query(
-        "INSERT INTO mrtv_customers (name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, tivimate_bundle, source, payment_method, referred_by, referred_by_customer_id, telegram_chat_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'telegram',$13,$14,$15,$16) RETURNING id",
-        [name, email, cell, plan, start, end, notes, totalC, tvs, pkg, adult, tivimate, payMethod, ref || null, referrerId, linkChatId]);
+        "INSERT INTO mrtv_customers (name, email, cell, plan, start_date, end_date, notes, renewal_amount_cents, tv_count, package, adult_ok, source, payment_method, referred_by, referred_by_customer_id, telegram_chat_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'telegram',$12,$13,$14,$15) RETURNING id",
+        [name, email, cell, plan, start, end, notes, totalC, tvs, pkg, adult, payMethod, ref || null, referrerId, linkChatId]);
       const id = rows[0].id;
       const code = codeOk ? formCode : ("MR-" + String(id).slice(0, 8).toUpperCase());
       await getPool().query("UPDATE mrtv_customers SET order_code = $1 WHERE id = $2", [code, id]);
       await sendTelegramPing("🛒 New Telegram app order: " + name + " — " + tvs + " TV" + (tvs === 1 ? "" : "s") + ", " + plan +
         ", $" + (totalC / 100).toFixed(2).replace(/\.00$/, "") + " via " + payMethod + ", code " + code +
-        (tivimate ? " (TiviMate bundle)" : "") + (referrerName ? ". Referred by " + referrerName + " (" + ref + ")" : "") +
+ + (referrerName ? ". Referred by " + referrerName + " (" + ref + ")" : "") +
         ". Review in the dashboard, then Mark paid & provision.");
       const screenshot = o.screenshot || body.screenshot || null;
       if (screenshot) {
