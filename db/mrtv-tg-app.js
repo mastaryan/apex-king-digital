@@ -480,7 +480,7 @@ function mountMrtvTgApp(app, authRequired) {
       recordPing("order-code", "formCode=" + formCode + " codeOk=" + codeOk + " code=" + code + " id=" + id, null);
       await sendTelegramPing("🛒 New Telegram app order: " + name + " — " + tvs + " TV" + (tvs === 1 ? "" : "s") + ", " + plan +
         ", $" + (totalC / 100).toFixed(2).replace(/\.00$/, "") + " via " + payMethod + ", code " + code +
- + (referrerName ? ". Referred by " + referrerName + " (" + ref + ")" : "") +
+        (referrerName ? ". Referred by " + referrerName + " (" + ref + ")" : "") +
         ". Review in the dashboard, then Mark paid & provision.");
       const screenshot = o.screenshot || body.screenshot || null;
       if (screenshot) {
