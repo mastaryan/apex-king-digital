@@ -1062,7 +1062,7 @@ function mountHome(app, authRequired) {
   catch (e) { console.error("mrtv-provision mount", e.message); }
   // Telegram Mini App (watchmrtv.com/tg-app): customer-facing auth, orders,
   // add-TV and renewals. Public routes (initData / signed-token gated).
-  try { require("./mrtv-tg-app").mountMrtvTgApp(app); }
+  try { require("./mrtv-tg-app").mountMrtvTgApp(app, authRequired); }
   catch (e) { console.error("mrtv-tg-app mount", e.message); }
 
   // ---------- email stats ----------

@@ -139,10 +139,21 @@ function verifySession(token) {
   return parts[1]; // customer id (uuid)
 }
 
+// Ping debug log (2026-11-10): new-order pings show a trailing "0" on the
+// order code in Telegram (MR-6089 -> MR-60890) while the DB row, the API
+// response and the screenshot caption all carry the clean code. Record the
+// exact text handed to the Telegram API so a test order can prove whether
+// the server or something downstream adds the digit. Ring buffer, last 20.
+const recentPings = [];
+function recordPing(kind, text, result) {
+  recentPings.push({ at: new Date().toISOString(), kind, text: String(text || ""), result: result || null });
+  if (recentPings.length > 20) recentPings.shift();
+}
+
 async function sendTelegramPing(text) {
   const token = botToken();
   const chatId = process.env.TELEGRAM_CHAT_ID || "";
-  if (!token || !chatId) return { ok: false, skipped: true };
+  if (!token || !chatId) { recordPing("sendMessage", text, { ok: false, skipped: true }); return { ok: false, skipped: true }; }
   try {
     const r = await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
       method: "POST",
@@ -150,8 +161,10 @@ async function sendTelegramPing(text) {
       body: JSON.stringify({ chat_id: chatId, text: String(text || "").slice(0, 4000) }),
     });
     const j = await r.json().catch(() => ({}));
-    return { ok: r.ok && j.ok !== false };
-  } catch (e) { return { ok: false, error: String(e.message || e).slice(0, 120) }; }
+    const out = { ok: r.ok && j.ok !== false, message_id: j.result ? j.result.message_id : undefined };
+    recordPing("sendMessage", text, out);
+    return out;
+  } catch (e) { const out = { ok: false, error: String(e.message || e).slice(0, 120) }; recordPing("sendMessage", text, out); return out; }
 }
 
 // Payment screenshot -> Ryan's Telegram DM as a photo. Best-effort: the
@@ -171,8 +184,10 @@ async function sendTelegramPhoto(base64DataUrl, caption) {
     form.append("photo", new Blob([buf], { type: m[1] }), "payment.png");
     const r = await fetch("https://api.telegram.org/bot" + token + "/sendPhoto", { method: "POST", body: form });
     const j = await r.json().catch(() => ({}));
-    return { ok: r.ok && j.ok !== false };
-  } catch (e) { return { ok: false, error: String(e.message || e).slice(0, 120) }; }
+    const out = { ok: r.ok && j.ok !== false, message_id: j.result ? j.result.message_id : undefined };
+    recordPing("sendPhoto", caption, out);
+    return out;
+  } catch (e) { const out = { ok: false, error: String(e.message || e).slice(0, 120) }; recordPing("sendPhoto", caption, out); return out; }
 }
 
 /* ---------------- email (link codes) ---------------- */
@@ -225,7 +240,7 @@ function clientIp(req) {
 }
 
 /* ---------------- mount ---------------- */
-function mountMrtvTgApp(app) {
+function mountMrtvTgApp(app, authRequired) {
   const needPg = (req, res) => {
     if (!pgEnabled()) { res.status(503).json({ error: "unavailable (Postgres not configured)" }); return true; }
     return false;
@@ -267,6 +282,14 @@ function mountMrtvTgApp(app) {
     const { rows } = await getPool().query(
       "SELECT " + CUSTOMER_COLS + " FROM mrtv_customers WHERE id = $1", [id]);
     return rows[0] || null;
+  }
+
+  // ---- GET /api/mrtv/tg-app/debug/pings (admin) ----
+  // Exact texts handed to the Telegram API (last 20) — ping-bug diagnosis.
+  if (authRequired) {
+    app.get("/api/mrtv/tg-app/debug/pings", authRequired, async (req, res) => {
+      res.json({ ok: true, pings: recentPings });
+    });
   }
 
   // ---- POST /api/mrtv/tg-app/auth ----
@@ -454,6 +477,7 @@ function mountMrtvTgApp(app) {
       const id = rows[0].id;
       const code = codeOk ? formCode : ("MR-" + String(id).slice(0, 8).toUpperCase());
       await getPool().query("UPDATE mrtv_customers SET order_code = $1 WHERE id = $2", [code, id]);
+      recordPing("order-code", "formCode=" + formCode + " codeOk=" + codeOk + " code=" + code + " id=" + id, null);
       await sendTelegramPing("🛒 New Telegram app order: " + name + " — " + tvs + " TV" + (tvs === 1 ? "" : "s") + ", " + plan +
         ", $" + (totalC / 100).toFixed(2).replace(/\.00$/, "") + " via " + payMethod + ", code " + code +
  + (referrerName ? ". Referred by " + referrerName + " (" + ref + ")" : "") +
