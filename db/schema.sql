@@ -395,6 +395,12 @@ ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS referred_by_customer_id UUID
 -- Referral free months (Ryan 2026-11-06): how many banked months have been
 -- applied. Unapplied = (customers who used this person's code) - applied.
 ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS referral_months_applied INTEGER NOT NULL DEFAULT 0;
+-- Telegram Mini App (2026-11-10): link a customer's Telegram identity to
+-- their subscription so the mini app can show status + take orders.
+ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS telegram_chat_id TEXT;
+ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS tg_link_code TEXT;
+ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS tg_link_code_at TIMESTAMPTZ;
+ALTER TABLE mrtv_customers ADD COLUMN IF NOT EXISTS tg_link_tries INTEGER NOT NULL DEFAULT 0;
 -- One-click provisioning (2026-10-29): per-TV panel credentials live in
 -- `lines` (JSONB array: {tv, type, sub, pack, username, password, user_id,
 -- demo, created_at, renewed_at}). needs_manual is a human-readable flag for
