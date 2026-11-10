@@ -484,6 +484,13 @@ function mountMrtvTgApp(app) {
       if (!customer) return res.status(401).json({ error: "unauthorized" });
       if ((Number(customer.tv_count) || 1) >= 5) return res.status(400).json({ error: "max_tvs" });
       const { cents, within30 } = addTvPriceCents(customer);
+      // Preview mode (frontend sheet open): return the price WITHOUT stamping
+      // notes or pinging Ryan — the ping fires only when the customer taps
+      // "I've paid". Without this, merely opening the sheet created a request
+      // (2026-11-10 re-test: renew ping fired on open, nothing submitted).
+      let preview = false;
+      try { const b = await readBody(req); preview = !!(b && b.preview); } catch (e) { /* no body = not a preview */ }
+      if (preview) return res.json({ ok: true, preview: true, amount_cents: cents, order_code: customer.order_code, within30, plan: customer.plan, tv_count: Number(customer.tv_count) || 1 });
       const stamp = nyToday() + " ADD-TV REQUEST (Telegram app): +1 TV, $" + (cents / 100).toFixed(2).replace(/\.00$/, "") +
         " (" + (within30 ? "within 30 days of start — bundle price" : "after 30 days — single-TV price, rest of term") +
         "). Awaiting payment with code " + (customer.order_code || "") + " as memo.";
@@ -508,6 +515,10 @@ function mountMrtvTgApp(app) {
       const customer = await authedCustomer(req);
       if (!customer) return res.status(401).json({ error: "unauthorized" });
       const cents = renewalCents(customer);
+      // Preview mode: price only, no notes stamp, no ping (see add-tv).
+      let preview = false;
+      try { const b = await readBody(req); preview = !!(b && b.preview); } catch (e) { /* no body = not a preview */ }
+      if (preview) return res.json({ ok: true, preview: true, amount_cents: cents, order_code: customer.order_code, plan: customer.plan, tv_count: Number(customer.tv_count) || 1, end_date: isoDate(customer.end_date) });
       const stamp = nyToday() + " RENEWAL REQUEST (Telegram app): $" + (cents / 100).toFixed(2).replace(/\.00$/, "") +
         " for " + (Number(customer.tv_count) || 1) + " TV" + ((Number(customer.tv_count) || 1) === 1 ? "" : "s") + ", " + customer.plan +
         ". Awaiting payment with code " + (customer.order_code || "") + " as memo.";

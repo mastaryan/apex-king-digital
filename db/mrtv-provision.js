@@ -507,6 +507,79 @@ function mountMrtvProvision(app, authRequired) {
     } catch (e) { res.json({ ok: false, error: String(e.message || e).slice(0, 160) }); }
   });
 
+  // TELEGRAM WEBHOOK: auto-welcome for new Mister TV group members (Ryan
+  // 2026-11-10: the pinned Start Here message should be the automessage
+  // when someone joins — Order button on top, that's the store).
+  // POST /api/mrtv/telegram/webhook — called by Telegram, no admin auth.
+  // Acts ONLY on new_chat_member joins in the Mister TV group. Optional
+  // secret: if MRTV_TG_WEBHOOK_SECRET is set, Telegram must send it as
+  // X-Telegram-Bot-Api-Secret-Token (set via webhook/set below).
+  const MRTV_GROUP_CHAT_ID = -1003857000698;
+  const WELCOME_TEXT = "Welcome to Mister TV 📺\nTap a button to get around:";
+  const WELCOME_BUTTONS = [
+    [{ text: "🛒 Order Mister TV", url: "https://t.me/WatchMRTV_bot" }],
+    [{ text: "🛠 How-To's", url: "https://t.me/watchmrtv/5" },
+     { text: "📺 Channel List", url: "https://t.me/watchmrtv/4" }],
+    [{ text: "💬 Support Chat", url: "https://t.me/watchmrtv/1" }],
+    [{ text: "🌐 watchmrtv.com", url: "https://watchmrtv.com" }],
+  ];
+  const _tgSeenUpdateIds = new Set();
+  app.post("/api/mrtv/telegram/webhook", async (req, res) => {
+    try {
+      const secret = process.env.MRTV_TG_WEBHOOK_SECRET || "";
+      if (secret && req.headers["x-telegram-bot-api-secret-token"] !== secret)
+        return res.status(403).json({ ok: false });
+      const update = req.body || {};
+      const uid = update.update_id;
+      if (uid !== undefined && uid !== null) {
+        if (_tgSeenUpdateIds.has(uid)) return res.json({ ok: true, deduped: true });
+        _tgSeenUpdateIds.add(uid);
+        if (_tgSeenUpdateIds.size > 1000) _tgSeenUpdateIds.clear();
+      }
+      const msg = update.message || {};
+      const joined = Array.isArray(msg.new_chat_members) ? msg.new_chat_members : [];
+      const humans = joined.filter((u) => u && !u.is_bot);
+      if (!humans.length || Number(msg.chat && msg.chat.id) !== MRTV_GROUP_CHAT_ID) return res.json({ ok: true });
+      const token = process.env.TELEGRAM_BOT_TOKEN || "";
+      if (token) {
+        try {
+          await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: MRTV_GROUP_CHAT_ID,
+              text: WELCOME_TEXT,
+              reply_markup: { inline_keyboard: WELCOME_BUTTONS },
+            }),
+          });
+        } catch (e) { /* welcome send failed — nothing else to do */ }
+      }
+      res.json({ ok: true, welcomed: humans.length });
+    } catch (e) { res.json({ ok: true }); }
+  });
+
+  // ADMIN: point the renewals bot's webhook at this service (one-time setup).
+  // POST /api/mrtv/telegram/webhook/set — uses TELEGRAM_BOT_TOKEN from env.
+  app.post("/api/mrtv/telegram/webhook/set", authRequired, async (req, res) => {
+    const token = process.env.TELEGRAM_BOT_TOKEN || "";
+    if (!token) return res.json({ ok: false, error: "TELEGRAM_BOT_TOKEN not set" });
+    try {
+      const url = "https://apex-dashboard-c0fq.onrender.com/api/mrtv/telegram/webhook";
+      const secret = process.env.MRTV_TG_WEBHOOK_SECRET || "";
+      const body = { url, allowed_updates: ["message"] };
+      if (secret) body.secret_token = secret;
+      const r = await fetch("https://api.telegram.org/bot" + token + "/setWebhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j.ok === false)
+        return res.json({ ok: false, error: String((j && j.description) || ("HTTP " + r.status)).slice(0, 160) });
+      res.json({ ok: true, url });
+    } catch (e) { res.json({ ok: false, error: String(e.message || e).slice(0, 160) }); }
+  });
+
   // ADMIN DIAG: panel device_info for a line (package/bouquet inspection).
   // Ryan 2026-11-04: verify what package hand-made lines carry.
   // POST body: { username, password } — admin auth only.
