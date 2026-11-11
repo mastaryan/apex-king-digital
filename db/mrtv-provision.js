@@ -923,6 +923,9 @@ function mountMrtvProvision(app, authRequired) {
       if (!rows.length) return res.status(404).json({ error: "customer not found" });
       const r = await sendLoginEmail(rows[0]);
       if (!r.ok) return res.status(r.code || 500).json({ error: r.error });
+      // A successful resend clears the "send the logins by hand" flag the
+      // provision flow sets when the first send fails.
+      try { await getPool().query("UPDATE mrtv_customers SET needs_manual = NULL WHERE id = $1", [req.params.id]); } catch (e) {}
       res.json({ ok: true, to: r.to, serverUrl: r.serverUrl });
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
@@ -973,9 +976,9 @@ function mountMrtvProvision(app, authRequired) {
       if (!rows.length) return res.status(404).json({ error: "customer not found" });
       const c = rows[0];
       // TV count is locked once lines exist (it must match the panel lines),
-      // but name / amount / notes are safe to fix anytime — the name drives
-      // every future email, so a wrong name (e.g. Mark vs Mike Thomas)
-      // has to be correctable after provisioning.
+      // but name / email / amount / notes are safe to fix anytime — the name
+      // and email drive every future email, so a wrong one (e.g. Mark vs Mike
+      // Thomas, or a typo'd domain) has to be correctable after provisioning.
       const hasLines = Array.isArray(c.lines) && c.lines.length;
       const sets = [], vals = [];
       const push = (col, v) => { vals.push(v); sets.push(col + " = $" + vals.length); };
@@ -989,6 +992,11 @@ function mountMrtvProvision(app, authRequired) {
         const nm = cleanStr(b.name, 120);
         if (!nm) return res.status(400).json({ error: "name required" });
         push("name", nm);
+      }
+      if (b.email !== undefined) {
+        const em = cleanStr(b.email, 120);
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) return res.status(400).json({ error: "valid email required" });
+        push("email", em);
       }
       if (b.renewal_amount_cents !== undefined) {
         const amt = Math.round(Number(b.renewal_amount_cents));
