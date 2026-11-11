@@ -703,12 +703,22 @@ function mountHome(app, authRequired) {
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
   });
   // Update an M.R. TV customer (name, email, plan, dates, notes). Any subset.
+  // NOTE: this is the LIVE PATCH handler — mountHome registers it before
+  // mountMrtvProvision, so a same-path handler in mrtv-provision.js never
+  // runs (removed 2026-11-11; it had shadowed itself). TV count is locked
+  // once panel lines exist (it must match the panel lines).
   app.patch("/api/mrtv/customers/:id", authRequired, async (req, res) => {
     try {
       if (needPg(req, res)) return;
       const b = req.body || {};
       const sets = [], vals = [];
       const push = (col, v) => { vals.push(v); sets.push(col + " = $" + vals.length); };
+      let hasLines = false;
+      if (b.tv_count !== undefined) {
+        const { rows: lr } = await getPool().query("SELECT lines FROM mrtv_customers WHERE id = $1", [req.params.id]);
+        if (!lr.length) return res.status(404).json({ error: "customer not found" });
+        hasLines = Array.isArray(lr[0].lines) && lr[0].lines.length > 0;
+      }
       if (b.name !== undefined) {
         const name = cleanStr(b.name, 120);
         if (!name) return res.status(400).json({ error: "customer name required" });
@@ -732,6 +742,7 @@ function mountHome(app, authRequired) {
       if (b.cell !== undefined) push("cell", cleanStr(b.cell, 40) || null);
       if (b.order_code !== undefined) push("order_code", cleanStr(b.order_code, 24) || null);
       if (b.tv_count !== undefined) {
+        if (hasLines) return res.status(400).json({ error: "TV count can't be edited after lines exist" });
         const tvs = Math.max(1, Math.min(10, parseInt(b.tv_count, 10) || 1));
         push("tv_count", tvs);
       }
