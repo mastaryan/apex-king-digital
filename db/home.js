@@ -762,7 +762,7 @@ function mountHome(app, authRequired) {
         const { rows: cur } = await getPool().query(
           "SELECT id, archived_at, referred_by, referred_by_customer_id FROM mrtv_customers WHERE id = $1", [req.params.id]);
         if (!cur.length) return res.status(404).json({ error: "customer not found" });
-        const me = cur.rows[0];
+        const me = cur[0];
         if (me.archived_at) return res.status(400).json({ error: "archived customers can't change their referral link" });
         const code = b.referred_by_code === null ? "" : String(b.referred_by_code).toUpperCase().replace(/[^A-Z0-9-]/g, "");
         const curRefApplied = async () => {
