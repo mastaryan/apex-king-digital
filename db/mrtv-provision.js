@@ -735,6 +735,57 @@ function mountMrtvProvision(app, authRequired) {
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 200) }); }
   });
 
+  // BROADCAST (Ryan 2026-11-13): send one HTML email to every
+  // non-archived customer, one address at a time (no bulk headers, each
+  // send logged as kind 'broadcast'). Body: { subject, html, text?,
+  // dryRun?, confirm? }. Live sends require confirm=true; dryRun=true
+  // returns the recipient list without sending anything. A 1s pause
+  // between sends keeps the mailbox provider happy.
+  app.post("/api/mrtv/email/broadcast", authRequired, async (req, res) => {
+    try {
+      if (needPg(req, res)) return;
+      const b = req.body || {};
+      const subject = cleanStr(b.subject, 200);
+      const html = typeof b.html === "string" ? b.html : "";
+      if (!subject) return res.status(400).json({ ok: false, error: "subject required" });
+      if (!html || html.length < 50) return res.status(400).json({ ok: false, error: "html body required" });
+      if (html.length > 200000) return res.status(400).json({ ok: false, error: "html body too large" });
+      const dryRun = !!b.dryRun;
+      if (!dryRun && b.confirm !== true) return res.status(400).json({ ok: false, error: "confirm=true required for a live broadcast" });
+      const { rows } = await getPool().query(
+        "SELECT id, name, email FROM mrtv_customers WHERE archived_at IS NULL AND email IS NOT NULL ORDER BY created_at ASC");
+      const seen = new Set();
+      const recipients = [];
+      const skipped = [];
+      for (const r of rows) {
+        const email = String(r.email || "").trim().toLowerCase();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { skipped.push({ name: r.name, email: r.email, reason: "invalid email" }); continue; }
+        if (seen.has(email)) { skipped.push({ name: r.name, email: email, reason: "duplicate email" }); continue; }
+        seen.add(email);
+        recipients.push({ id: r.id, name: r.name, email: email });
+      }
+      if (dryRun) return res.json({ ok: true, dryRun: true, count: recipients.length, recipients: recipients, skipped: skipped });
+      const ml = mailer();
+      if (!ml) return res.status(500).json({ ok: false, error: "SMTP not configured on server" });
+      const text = (typeof b.text === "string" && b.text) ? b.text
+        : html.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&mdash;/g, "-").replace(/\s+/g, " ").trim();
+      const results = [];
+      for (const rcpt of recipients) {
+        try {
+          const info = await ml.sendMail({ from: loginFrom(), replyTo: "tv@watchmrtv.com", to: rcpt.email, subject: subject, text: text, html: html });
+          await logEmail({ kind: "broadcast", customerId: rcpt.id, to: rcpt.email, subject: subject, info: info, ok: true });
+          results.push({ email: rcpt.email, ok: true });
+        } catch (e) {
+          await logEmail({ kind: "broadcast", customerId: rcpt.id, to: rcpt.email, subject: subject, ok: false, error: e.message });
+          results.push({ email: rcpt.email, ok: false, error: String(e.message || e).slice(0, 200) });
+        }
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+      const sent = results.filter((r) => r.ok).length;
+      res.json({ ok: true, sent: sent, failed: results.length - sent, results: results, skipped: skipped });
+    } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e).slice(0, 300) }); }
+  });
+
   // Sent-mail log: newest first, cap 100.
   app.get("/api/mrtv/email/log", authRequired, async (req, res) => {
     try {
