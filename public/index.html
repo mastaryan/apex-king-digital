@@ -2228,7 +2228,7 @@ function renderMrtvDetail(d){
   h += '<div class="tv-detail-sec"><h3>Referrals</h3>';
   h += '<dl class="tv-detail-grid">' +
     '<dt>Their code</dt><dd><code>' + esc(c.orderCode || '—') + '</code>' + (c.orderCode ? ' <span style="color:var(--dim);font-size:13px">— share it, a friend who signs up with it earns them a free month</span>' : '') + '</dd>' +
-    (c.referredBy ? '<dt>Referred by</dt><dd>' + esc(c.referredBy) + (c.referrerName ? ' (' + esc(c.referrerName) + ')' : '') + '</dd>' : '') +
+    '<dt>Referred by</dt><dd><input id="mrtv-refby-input" type="text" value="' + esc(c.referredBy || '') + '" placeholder="MR-####" autocomplete="off" style="width:130px;padding:3px 8px;font-size:13px"> <button class="btn" id="mrtv-refby-save" type="button" style="padding:3px 12px;font-size:12px">Save</button> <button class="btn" id="mrtv-refby-clear" type="button" style="padding:3px 12px;font-size:12px">Clear</button>' + (c.referrerName ? ' <span style="color:var(--dim);font-size:13px">' + esc(c.referrerName) + '</span>' : '') + '</dd>' +
     '<dt>Referred</dt><dd>' + (c.referralCount ? esc(String(c.referralCount)) + ' customer' + (c.referralCount === 1 ? '' : 's') + (c.referrals && c.referrals.length ? ' — ' + c.referrals.map(function(x){ return esc(x.name) + (x.orderCode ? ' (' + esc(x.orderCode) + ')' : ''); }).join(', ') : '') : '0 yet') + '</dd>' +
     '<dt>Free months</dt><dd>' + esc(String(c.referralMonthsBanked || 0)) + ' banked · ' + esc(String(c.referralMonthsApplied || 0)) + ' used <span style="color:var(--dim);font-size:13px">(auto-applied 30 days before expiry)</span></dd>' +
     '</dl></div>';
@@ -2271,6 +2271,25 @@ function renderMrtvDetail(d){
       alert('Login email re-sent to ' + r.j.to + '.');
       openMrtvDetail(mrtvDetailId); // refresh the email history
     });
+  });
+  // Referral linking (Ryan 2026-11-14): set/clear who referred this customer
+  // by the referrer's order code. Save refused (bad code, self-link, archived
+  // referrer, months already used) surfaces the API error message.
+  var refInput = document.getElementById('mrtv-refby-input');
+  var refSave = document.getElementById('mrtv-refby-save');
+  var refClear = document.getElementById('mrtv-refby-clear');
+  function saveRefLink(code){
+    if (!mrtvDetailId) return;
+    api('/api/mrtv/customers/' + encodeURIComponent(mrtvDetailId), { method: 'PATCH', body: JSON.stringify({ referred_by_code: code }) }).then(function(r){
+      if (!r.ok) { alert('Failed: ' + ((r.j && r.j.error) || 'unknown error')); return; }
+      openMrtvDetail(mrtvDetailId); // refresh the Referrals section + counts
+      loadMrtv();
+    });
+  }
+  if (refSave) refSave.addEventListener('click', function(){ saveRefLink(refInput.value); });
+  if (refClear) refClear.addEventListener('click', function(){
+    if (!confirm('Remove the referral link for ' + c.name + '?')) return;
+    saveRefLink('');
   });
 }
 document.getElementById('mrtv-detail-close').addEventListener('click', function(){

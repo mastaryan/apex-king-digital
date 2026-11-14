@@ -752,6 +752,43 @@ function mountHome(app, authRequired) {
       }
       if (b.adult_ok !== undefined) push("adult_ok", !!b.adult_ok);
       if (b.needs_manual !== undefined) push("needs_manual", cleanStr(b.needs_manual, 500) || "");
+      if (b.referred_by_code !== undefined) {
+        // Referral linking (Ryan 2026-11-14): link/unlink this customer to a
+        // referrer by their order code, same normalization as the website
+        // webhook (uppercase, strip anything not [A-Z0-9-]). A link earns the
+        // referrer one banked free month per linked customer; months already
+        // applied can never be pulled back, so clear/replace is refused once
+        // the current referrer has referral_months_applied > 0.
+        const { rows: cur } = await getPool().query(
+          "SELECT id, archived_at, referred_by, referred_by_customer_id FROM mrtv_customers WHERE id = $1", [req.params.id]);
+        if (!cur.length) return res.status(404).json({ error: "customer not found" });
+        const me = cur.rows[0];
+        if (me.archived_at) return res.status(400).json({ error: "archived customers can't change their referral link" });
+        const code = b.referred_by_code === null ? "" : String(b.referred_by_code).toUpperCase().replace(/[^A-Z0-9-]/g, "");
+        const curRefApplied = async () => {
+          if (!me.referred_by_customer_id) return 0;
+          const { rows: rr } = await getPool().query(
+            "SELECT referral_months_applied FROM mrtv_customers WHERE id = $1", [me.referred_by_customer_id]);
+          return rr.length ? (rr[0].referral_months_applied || 0) : 0;
+        };
+        if (!code) {
+          if (await curRefApplied() > 0)
+            return res.status(400).json({ error: "can't unlink: the referrer already used free months from this referral" });
+          push("referred_by", null);
+          push("referred_by_customer_id", null);
+        } else {
+          const { rows: m } = await getPool().query(
+            "SELECT id, order_code, archived_at FROM mrtv_customers WHERE UPPER(order_code) = $1 LIMIT 1", [code]);
+          if (!m.length) return res.status(400).json({ error: "no customer has order code " + code });
+          const ref = m[0];
+          if (ref.id === me.id) return res.status(400).json({ error: "a customer can't refer themself" });
+          if (ref.archived_at) return res.status(400).json({ error: "that referrer is archived" });
+          if (me.referred_by_customer_id && me.referred_by_customer_id !== ref.id && await curRefApplied() > 0)
+            return res.status(400).json({ error: "can't re-link: the current referrer already used free months from this referral" });
+          push("referred_by", ref.order_code);
+          push("referred_by_customer_id", ref.id);
+        }
+      }
       if (!sets.length) return res.status(400).json({ error: "nothing to update" });
       vals.push(req.params.id);
       const { rows } = await getPool().query(
