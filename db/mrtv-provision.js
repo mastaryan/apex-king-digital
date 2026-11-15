@@ -786,6 +786,37 @@ function mountMrtvProvision(app, authRequired) {
     } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e).slice(0, 300) }); }
   });
 
+  // SEND-ONE (Ryan 2026-11-14): send one custom HTML email to a single
+  // address, with an optional BCC. Body: { to, bcc?, subject, html, text? }.
+  // Logged as kind 'single'. No customer record required.
+  app.post("/api/mrtv/email/send-one", authRequired, async (req, res) => {
+    try {
+      if (needPg(req, res)) return;
+      const b = req.body || {};
+      const to = cleanStr(b.to, 120);
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return res.status(400).json({ ok: false, error: "valid 'to' email required" });
+      const bcc = cleanStr(b.bcc, 120);
+      if (bcc && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(bcc)) return res.status(400).json({ ok: false, error: "valid 'bcc' email required" });
+      const subject = cleanStr(b.subject, 200);
+      const html = typeof b.html === "string" ? b.html : "";
+      if (!subject) return res.status(400).json({ ok: false, error: "subject required" });
+      if (!html || html.length < 50) return res.status(400).json({ ok: false, error: "html body required" });
+      if (html.length > 200000) return res.status(400).json({ ok: false, error: "html body too large" });
+      const ml = mailer();
+      if (!ml) return res.status(500).json({ ok: false, error: "SMTP not configured on server" });
+      const text = (typeof b.text === "string" && b.text) ? b.text
+        : html.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&mdash;/g, "-").replace(/\s+/g, " ").trim();
+      const msg = { from: loginFrom(), replyTo: "tv@watchmrtv.com", to: to, subject: subject, text: text, html: html };
+      if (bcc) msg.bcc = bcc;
+      const info = await ml.sendMail(msg);
+      try { await logEmail({ kind: "single", customerId: null, to: to, subject: subject, info: info, ok: true }); } catch (e) {}
+      res.json({ ok: true, to: to, bcc: bcc || null, messageId: info.messageId || null });
+    } catch (e) {
+      try { await logEmail({ kind: "single", customerId: null, to: cleanStr((req.body || {}).to, 120), subject: cleanStr((req.body || {}).subject, 200), ok: false, error: e.message }); } catch (e2) {}
+      res.status(500).json({ ok: false, error: String(e.message || e).slice(0, 300) });
+    }
+  });
+
   // Sent-mail log: newest first, cap 100.
   app.get("/api/mrtv/email/log", authRequired, async (req, res) => {
     try {
