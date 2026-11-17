@@ -385,6 +385,359 @@ async function applyReferralMonths() {
   return out;
 }
 
+// --- MRTV group moderation (Ryan 2026-11-17) ------------------------------------
+// Mister TV group ONLY (MRTV_GROUP_CHAT_ID, -1003857000698, verified in code).
+// 1) Join-time ban check, 2) username required to join, 3) no links at all,
+// 4) /ban + /unban (admin-only). Nothing here touches the mini-app order
+// flow (db/mrtv-tg-app.js), provisioning/renewal emails, the welcome text or
+// buttons, or the Netlify order webhook DM pings.
+//
+// Ban list: a dedicated MRTV Postgres table (mrtv_bans, see db/schema.sql),
+// separate from any Helix list. It is deliberately NOT gated on
+// USE_POSTGRES: that flag is the Phase-1 dual-write cutover for order data,
+// while this list must exist wherever DATABASE_URL exists. The table is
+// created on first use (CREATE TABLE IF NOT EXISTS). If Postgres is
+// unreachable the join flow must not break (db/pg.js: a PG failure must
+// never break a user-facing request), so lookups fail open (the welcome
+// proceeds) and the in-process cache below keeps /ban working for the life
+// of the process. The cache is a fallback only, never the store of record.
+const MRTV_BANS_TABLE_SQL =
+  "CREATE TABLE IF NOT EXISTS mrtv_bans (" +
+  "id UUID PRIMARY KEY DEFAULT gen_random_uuid(), " +
+  "telegram_user_id BIGINT, " +
+  "username TEXT, " +
+  "first_name TEXT, " +
+  "reason TEXT, " +
+  "banned_by BIGINT, " +
+  "banned_at TIMESTAMPTZ NOT NULL DEFAULT now()" +
+  ");" +
+  "CREATE UNIQUE INDEX IF NOT EXISTS mrtv_bans_user_id_idx ON mrtv_bans (telegram_user_id);" +
+  "CREATE UNIQUE INDEX IF NOT EXISTS mrtv_bans_username_idx ON mrtv_bans (lower(username));";
+const _mrtvBanCache = { byId: new Map(), byUsername: new Map() };
+let _mrtvBansTableReady = false;
+
+function mrtvRyanUserId() {
+  // Ryan's DM chat id (TELEGRAM_CHAT_ID) is his Telegram user id: in a DM,
+  // chat.id == the user's id. There is no other Ryan id in the codebase.
+  const n = Number(process.env.TELEGRAM_CHAT_ID || "");
+  return Number.isFinite(n) && n !== 0 ? n : null;
+}
+function mrtvIsRyan(user) {
+  const ryan = mrtvRyanUserId();
+  return !!ryan && !!user && Number(user.id) === ryan;
+}
+function mrtvLabel(user) {
+  if (!user) return "unknown user";
+  const name = (user.first_name || "") + (user.last_name ? " " + user.last_name : "");
+  const at = user.username ? " (@" + user.username + ")" : "";
+  return (name.trim() || "user " + user.id) + at + " [id " + user.id + "]";
+}
+function mrtvNormUsername(u) {
+  return u ? String(u).trim().replace(/^@/, "").toLowerCase() : "";
+}
+
+// Minimal Telegram Bot API call, following the sendTelegramPing() pattern
+// (global fetch, TELEGRAM_BOT_TOKEN, JSON body, never throws).
+async function mrtvTg(method, body) {
+  const token = process.env.TELEGRAM_BOT_TOKEN || "";
+  if (!token) return { ok: false, skipped: true };
+  try {
+    const r = await fetch("https://api.telegram.org/bot" + token + "/" + method, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body || {}),
+    });
+    const j = await r.json().catch(() => ({}));
+    return j && typeof j.ok === "boolean" ? j : { ok: r.ok, result: j };
+  } catch (e) {
+    return { ok: false, error: e && e.message ? e.message : String(e) };
+  }
+}
+async function mrtvTgSendGroup(text, extra) {
+  return mrtvTg("sendMessage", Object.assign({ chat_id: MRTV_GROUP_CHAT_ID, text: text }, extra || {}));
+}
+async function mrtvTgGetChatMember(userId) {
+  const j = await mrtvTg("getChatMember", { chat_id: MRTV_GROUP_CHAT_ID, user_id: userId });
+  return j && j.ok && j.result ? j.result : null;
+}
+async function mrtvIsGroupAdmin(userId) {
+  const member = await mrtvTgGetChatMember(userId);
+  return !!member && (member.status === "creator" || member.status === "administrator");
+}
+
+// --- MRTV ban list store (Postgres mrtv_bans + in-process cache) -------------
+async function ensureMrtvBansTable() {
+  if (_mrtvBansTableReady) return true;
+  let pool;
+  try { pool = getPool(); } catch (e) { return false; }
+  try {
+    await pool.query(MRTV_BANS_TABLE_SQL);
+    _mrtvBansTableReady = true;
+    return true;
+  } catch (e) {
+    console.error("[mrtv] bans table ensure failed:", e && e.message ? e.message : e);
+    return false;
+  }
+}
+function mrtvBanCachePut(entry) {
+  if (!entry) return;
+  if (entry.telegram_user_id) _mrtvBanCache.byId.set(Number(entry.telegram_user_id), entry);
+  if (entry.username) _mrtvBanCache.byUsername.set(mrtvNormUsername(entry.username), entry);
+}
+function mrtvBanCacheDrop(userId, username) {
+  if (userId) _mrtvBanCache.byId.delete(Number(userId));
+  if (username) _mrtvBanCache.byUsername.delete(mrtvNormUsername(username));
+}
+// Join-time lookup. Matches by Telegram user id OR by username, so a
+// username-only /ban (no id resolvable via the Bot API) still bites when
+// that user next joins. Never throws; on any Postgres failure returns
+// not-banned so a join is never blocked by a DB outage.
+async function mrtvBanLookup(user) {
+  const userId = user && user.id ? Number(user.id) : null;
+  const username = mrtvNormUsername(user && user.username);
+  const cached = (userId && _mrtvBanCache.byId.get(userId)) ||
+    (username && _mrtvBanCache.byUsername.get(username)) || null;
+  if (cached) return { banned: true, reason: cached.reason || null, via: "cache" };
+  if (!(await ensureMrtvBansTable())) return { banned: false, reason: null, via: null };
+  let pool;
+  try { pool = getPool(); } catch (e) { return { banned: false, reason: null, via: null }; }
+  try {
+    const r = await pool.query(
+      "SELECT telegram_user_id, username, reason FROM mrtv_bans " +
+      "WHERE telegram_user_id = $1 OR (username IS NOT NULL AND lower(username) = $2) LIMIT 1",
+      [userId, username || null]
+    );
+    if (!r.rows.length) return { banned: false, reason: null, via: null };
+    const row = r.rows[0];
+    mrtvBanCachePut(row);
+    return { banned: true, reason: row.reason || null, via: row.telegram_user_id && Number(row.telegram_user_id) === userId ? "id" : "username" };
+  } catch (e) {
+    console.error("[mrtv] ban lookup failed:", e && e.message ? e.message : e);
+    return { banned: false, reason: null, via: null };
+  }
+}
+async function mrtvBanAdd(target, bannedBy) {
+  const entry = {
+    telegram_user_id: target.userId || null,
+    username: target.username ? mrtvNormUsername(target.username) : null,
+    first_name: target.firstName || null,
+    reason: target.reason || null,
+    banned_by: bannedBy || null,
+  };
+  mrtvBanCachePut(entry);
+  if (!(await ensureMrtvBansTable())) return { ok: true, persisted: false };
+  let pool;
+  try { pool = getPool(); } catch (e) { return { ok: true, persisted: false }; }
+  try {
+    if (entry.telegram_user_id) {
+      await pool.query(
+        "INSERT INTO mrtv_bans (telegram_user_id, username, first_name, reason, banned_by) " +
+        "VALUES ($1, $2, $3, $4, $5) ON CONFLICT (telegram_user_id) DO UPDATE SET " +
+        "username = COALESCE(EXCLUDED.username, mrtv_bans.username), " +
+        "first_name = COALESCE(EXCLUDED.first_name, mrtv_bans.first_name), " +
+        "reason = COALESCE(EXCLUDED.reason, mrtv_bans.reason), " +
+        "banned_by = COALESCE(EXCLUDED.banned_by, mrtv_bans.banned_by), banned_at = now()",
+        [entry.telegram_user_id, entry.username, entry.first_name, entry.reason, entry.banned_by]
+      );
+    } else if (entry.username) {
+      const existing = await pool.query("SELECT id FROM mrtv_bans WHERE lower(username) = $1 LIMIT 1", [entry.username]);
+      if (existing.rows.length) {
+        await pool.query(
+          "UPDATE mrtv_bans SET first_name = COALESCE($2, first_name), reason = COALESCE($3, reason), " +
+          "banned_by = COALESCE($4, banned_by), banned_at = now() WHERE lower(username) = $1",
+          [entry.username, entry.first_name, entry.reason, entry.banned_by]
+        );
+      } else {
+        await pool.query(
+          "INSERT INTO mrtv_bans (username, first_name, reason, banned_by) VALUES ($1, $2, $3, $4)",
+          [entry.username, entry.first_name, entry.reason, entry.banned_by]
+        );
+      }
+    } else {
+      return { ok: false, persisted: false };
+    }
+    return { ok: true, persisted: true };
+  } catch (e) {
+    console.error("[mrtv] ban add failed:", e && e.message ? e.message : e);
+    return { ok: true, persisted: false };
+  }
+}
+async function mrtvBanRemove(target) {
+  mrtvBanCacheDrop(target.userId, target.username);
+  if (!(await ensureMrtvBansTable())) return { ok: true, persisted: false, removed: false };
+  let pool;
+  try { pool = getPool(); } catch (e) { return { ok: true, persisted: false, removed: false }; }
+  try {
+    const r = await pool.query(
+      "DELETE FROM mrtv_bans WHERE telegram_user_id = $1 OR (username IS NOT NULL AND lower(username) = $2)",
+      [target.userId || null, target.username ? mrtvNormUsername(target.username) : null]
+    );
+    return { ok: true, persisted: true, removed: (r.rowCount || 0) > 0 };
+  } catch (e) {
+    console.error("[mrtv] ban remove failed:", e && e.message ? e.message : e);
+    return { ok: true, persisted: false, removed: false };
+  }
+}
+
+// Group id, module scope so the helpers above can use it. Verified in the
+// webhook below (was -1003857000698, the "Mister TV" group); the duplicate
+// declaration that used to live inside mountMrtvProvision is removed.
+const MRTV_GROUP_CHAT_ID = -1003857000698;
+
+// --- Link rule + /ban + /unban ------------------------------------------------
+// A link is any url/text_link entity, or text matching the usual link
+// shapes (http/https, www., t.me, discord.gg, discord.com/invite).
+const MRTV_LINK_RE = /(?:https?:\/\/|www\.)[^\s]+|t\.me\/[^\s]+|discord\.gg\/[^\s]+|discord\.com\/invite\/[^\s]+/i;
+function mrtvHasLink(msg) {
+  if (!msg) return false;
+  const text = msg.text || msg.caption || "";
+  const entities = msg.entities || msg.caption_entities || [];
+  if (entities.some((e) => e && (e.type === "url" || e.type === "text_link"))) return true;
+  return MRTV_LINK_RE.test(text);
+}
+function mrtvCommand(msg) {
+  const text = (msg && msg.text) || "";
+  if (!text.startsWith("/")) return null;
+  const firstWord = text.split(/\s+/)[0] || "";
+  const cmd = firstWord.split("@")[0].toLowerCase();
+  if (cmd !== "/ban" && cmd !== "/unban") return null;
+  const rest = text.slice(firstWord.length).trim();
+  const parts = rest.split(/\s+/).filter(Boolean);
+  return { cmd: cmd, targetArg: parts[0] || "", reason: parts.slice(1).join(" ") || null };
+}
+// Resolve a /ban or /unban target: reply first, then a text_mention entity
+// (user picked from a list), then @username or a numeric user id. The Bot
+// API has no lookup-by-username, so an @username target carries no id:
+// it is stored by username and enforced when that user next joins.
+function mrtvBanTarget(msg, targetArg) {
+  const replied = msg && msg.reply_to_message && msg.reply_to_message.from;
+  if (replied && replied.id) {
+    return { userId: Number(replied.id), username: replied.username || null, firstName: replied.first_name || null, isBot: !!replied.is_bot, via: "reply" };
+  }
+  const entities = (msg && msg.entities) || [];
+  for (const e of entities) {
+    if (e && e.type === "text_mention" && e.user && e.user.id) {
+      return { userId: Number(e.user.id), username: e.user.username || null, firstName: e.user.first_name || null, isBot: !!e.user.is_bot, via: "mention" };
+    }
+  }
+  if (!targetArg) return null;
+  if (/^\d+$/.test(targetArg)) return { userId: Number(targetArg), username: null, firstName: null, isBot: false, via: "id" };
+  const name = mrtvNormUsername(targetArg);
+  if (/^[a-z0-9_]{5,32}$/.test(name)) return { userId: null, username: name, firstName: null, isBot: false, via: "username" };
+  return null;
+}
+// Ryan's username, resolved once via getChat on his DM id, so /ban
+// @<ryans-username> can be refused too (his id alone does not cover it).
+let _mrtvRyanUsername = null;
+async function mrtvRyanUsername() {
+  if (_mrtvRyanUsername !== null) return _mrtvRyanUsername;
+  const ryan = mrtvRyanUserId();
+  if (!ryan) { _mrtvRyanUsername = false; return false; }
+  const j = await mrtvTg("getChat", { chat_id: ryan });
+  _mrtvRyanUsername = j && j.ok && j.result && j.result.username ? mrtvNormUsername(j.result.username) : false;
+  return _mrtvRyanUsername;
+}
+
+// Per-member join checks, in order: ban list, then username. Returns true
+// when the member may stay (and be welcomed), false when removed. Ryan is
+// never removed; bots are filtered out by the webhook before this runs.
+// A moderation error fails open (the member stays) so a bug or outage can
+// never block legitimate joins.
+async function mrtvModerateJoin(msg, member) {
+  try {
+    if (mrtvIsRyan(member)) return true;
+    const ban = await mrtvBanLookup(member);
+    if (ban.banned) {
+      await mrtvTg("banChatMember", { chat_id: MRTV_GROUP_CHAT_ID, user_id: member.id });
+      await sendTelegramPing("\uD83D\uDEAB MRTV: banned user tried to rejoin and was removed: " + mrtvLabel(member) + (ban.reason ? " \u2014 reason: " + ban.reason : "") + ".");
+      return false;
+    }
+    if (!member.username) {
+      await mrtvTg("banChatMember", { chat_id: MRTV_GROUP_CHAT_ID, user_id: member.id });
+      await mrtvTg("unbanChatMember", { chat_id: MRTV_GROUP_CHAT_ID, user_id: member.id });
+      const notice = "\u26A0\uFE0F @" + (member.first_name || "New member") + " was removed \u2014 a Telegram username is required to join. Set one in Telegram Settings and come back!";
+      const extra = {};
+      if (msg && msg.message_thread_id) extra.message_thread_id = msg.message_thread_id;
+      await mrtvTgSendGroup(notice, extra);
+      await sendTelegramPing("\u26A0\uFE0F MRTV: " + mrtvLabel(member) + " was removed on join \u2014 no Telegram username.");
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error("[mrtv] join moderation failed:", e && e.message ? e.message : e);
+    return true;
+  }
+}
+// Silent link deletion. Exempt: Ryan, group admins/creator, bots, channel
+// posts (sender_chat / no .from) and commands (handled before this runs).
+// If the admin lookup fails we delete anyway: Ryan is already exempt
+// above, and a failed lookup must not let a link stand.
+async function mrtvHandleLinkMessage(msg) {
+  const from = (msg && msg.from) || {};
+  if (!from.id || from.is_bot) return false;
+  if (msg.sender_chat) return false;
+  // Commands are exempt from the link rule (any command, not just /ban).
+  if ((msg.text || "").startsWith("/")) return false;
+  if (mrtvIsRyan(from)) return false;
+  if (!mrtvHasLink(msg)) return false;
+  if (await mrtvIsGroupAdmin(from.id)) return false;
+  const r = await mrtvTg("deleteMessage", { chat_id: MRTV_GROUP_CHAT_ID, message_id: msg.message_id });
+  return !!(r && r.ok);
+}
+// /ban + /unban: admin-only (Ryan or a group admin/creator), in-group.
+// Non-admins get no reply at all. /ban adds to the MRTV ban list AND bans
+// immediately; /unban removes from the list AND unbans. Ryan and bots are
+// never banned. A username-only target (no id resolvable via the Bot API)
+// is stored by username and enforced when that user next joins.
+async function mrtvHandleCommand(msg, command) {
+  const from = (msg && msg.from) || {};
+  if (!from.id || from.is_bot) return;
+  if (!mrtvIsRyan(from) && !(await mrtvIsGroupAdmin(from.id))) return;
+  const target = mrtvBanTarget(msg, command.targetArg);
+  const replyExtra = { reply_to_message_id: msg.message_id };
+  if (!target || (!target.userId && !target.username)) {
+    await mrtvTgSendGroup("Usage: reply to a message with /ban or /unban, or use /ban @username (or /unban @username).", replyExtra);
+    return;
+  }
+  if (target.userId && mrtvIsRyan({ id: target.userId })) {
+    await mrtvTgSendGroup("Ryan can't be banned.", replyExtra);
+    return;
+  }
+  if (target.username) {
+    const ryanName = await mrtvRyanUsername();
+    if (ryanName && target.username === ryanName) {
+      await mrtvTgSendGroup("Ryan can't be banned.", replyExtra);
+      return;
+    }
+  }
+  if (target.isBot) {
+    await mrtvTgSendGroup("Bots can't be banned.", replyExtra);
+    return;
+  }
+  const label = target.username ? "@" + target.username : target.firstName ? target.firstName : "user " + target.userId;
+  if (command.cmd === "/ban") {
+    const added = await mrtvBanAdd({ userId: target.userId, username: target.username, firstName: target.firstName, reason: command.reason }, from.id);
+    let bannedNow = false;
+    if (target.userId) {
+      const r = await mrtvTg("banChatMember", { chat_id: MRTV_GROUP_CHAT_ID, user_id: target.userId });
+      bannedNow = !!(r && r.ok);
+    }
+    if (bannedNow) {
+      await mrtvTgSendGroup("\uD83D\uDEAB " + label + " has been banned from Mister TV." + (command.reason ? " Reason: " + command.reason : "") + (added.persisted ? "" : " (Note: the ban list could not be saved \u2014 re-run /ban if they rejoin.)"), replyExtra);
+    } else if (target.username) {
+      await mrtvTgSendGroup("\uD83D\uDEAB @" + target.username + " was added to the MRTV ban list and will be banned if they try to join. (Telegram gives no user ID for an @username, so they can't be banned right now \u2014 reply to one of their messages with /ban to ban them immediately.)" + (added.persisted ? "" : " Note: the ban list could not be saved."), replyExtra);
+    } else {
+      await mrtvTgSendGroup("Couldn't ban " + label + " right now \u2014 Telegram refused the ban.", replyExtra);
+    }
+    await sendTelegramPing("\uD83D\uDEAB MRTV: " + mrtvLabel(from) + " banned " + label + (target.userId ? " [id " + target.userId + "]" : "") + (command.reason ? " \u2014 " + command.reason : "") + (bannedNow ? "" : " (not banned in Telegram yet \u2014 username only)") + ".");
+  } else {
+    const removed = await mrtvBanRemove(target);
+    if (target.userId) await mrtvTg("unbanChatMember", { chat_id: MRTV_GROUP_CHAT_ID, user_id: target.userId });
+    await mrtvTgSendGroup("\u2705 " + label + " has been unbanned from Mister TV" + (removed.removed ? "." : " (they weren't on the MRTV ban list)."), replyExtra);
+    await sendTelegramPing("\u2705 MRTV: " + mrtvLabel(from) + " unbanned " + label + (target.userId ? " [id " + target.userId + "]" : "") + ".");
+  }
+}
+
 function mountMrtvProvision(app, authRequired) {
   const needPg = (req, res) => {
     if (!pgEnabled()) { res.status(503).json({ error: "unavailable (Postgres not configured)" }); return true; }
@@ -510,11 +863,6 @@ function mountMrtvProvision(app, authRequired) {
   // TELEGRAM WEBHOOK: auto-welcome for new Mister TV group members (Ryan
   // 2026-11-10: the pinned Start Here message should be the automessage
   // when someone joins — Order button on top, that's the store).
-  // POST /api/mrtv/telegram/webhook — called by Telegram, no admin auth.
-  // Acts ONLY on new_chat_member joins in the Mister TV group. Optional
-  // secret: if MRTV_TG_WEBHOOK_SECRET is set, Telegram must send it as
-  // X-Telegram-Bot-Api-Secret-Token (set via webhook/set below).
-  const MRTV_GROUP_CHAT_ID = -1003857000698;
   const WELCOME_TEXT = "Welcome to Mister TV 📺\nTap a button to get around:";
   const WELCOME_BUTTONS = [
     [{ text: "🛒 Order Mister TV", url: "https://t.me/WatchMRTV_bot/MR_TV" }],
@@ -524,6 +872,13 @@ function mountMrtvProvision(app, authRequired) {
     [{ text: "🌐 watchmrtv.com", url: "https://watchmrtv.com" }],
   ];
   const _tgSeenUpdateIds = new Set();
+  // POST /api/mrtv/telegram/webhook - called by Telegram, no admin auth.
+  // Mister TV group moderation lives here: join-time ban check + username
+  // requirement (before the welcome), /ban + /unban (admin-only), and the
+  // silent no-links rule. The bot's own outgoing messages (the welcome,
+  // announcements) are sent by the bot, not incoming updates, so the link
+  // rule cannot touch them. Channel posts arrive as update.channel_post,
+  // not update.message, and are ignored.
   app.post("/api/mrtv/telegram/webhook", async (req, res) => {
     try {
       const secret = process.env.MRTV_TG_WEBHOOK_SECRET || "";
@@ -536,27 +891,51 @@ function mountMrtvProvision(app, authRequired) {
         _tgSeenUpdateIds.add(uid);
         if (_tgSeenUpdateIds.size > 1000) _tgSeenUpdateIds.clear();
       }
-      const msg = update.message || {};
+      const msg = update.message || update.edited_message || {};
+      if (Number(msg.chat && msg.chat.id) !== MRTV_GROUP_CHAT_ID) return res.json({ ok: true });
+      const token = process.env.TELEGRAM_BOT_TOKEN || "";
+      // 1) New members: ban check, then username check, then the welcome.
+      // The welcome goes out once per update, and only if at least one
+      // joining human passed both checks.
       const joined = Array.isArray(msg.new_chat_members) ? msg.new_chat_members : [];
       const humans = joined.filter((u) => u && !u.is_bot);
-      if (!humans.length || Number(msg.chat && msg.chat.id) !== MRTV_GROUP_CHAT_ID) return res.json({ ok: true });
-      const token = process.env.TELEGRAM_BOT_TOKEN || "";
-      if (token) {
-        try {
-          await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              chat_id: MRTV_GROUP_CHAT_ID,
-              text: WELCOME_TEXT,
-              reply_markup: { inline_keyboard: WELCOME_BUTTONS },
-            }),
-          });
-        } catch (e) { /* welcome send failed — nothing else to do */ }
+      if (humans.length) {
+        let welcomed = 0;
+        for (const member of humans) {
+          if (await mrtvModerateJoin(msg, member)) welcomed += 1;
+        }
+        if (token && welcomed > 0) {
+          try {
+            await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                chat_id: MRTV_GROUP_CHAT_ID,
+                text: WELCOME_TEXT,
+                reply_markup: { inline_keyboard: WELCOME_BUTTONS },
+              }),
+            });
+          } catch (e) { /* welcome send failed */ }
+        }
+        return res.json({ ok: true, welcomed: welcomed });
       }
-      res.json({ ok: true, welcomed: humans.length });
+      // 2) Admin commands: /ban and /unban only. Anything else starting
+      // with "/" is ignored (and is exempt from the link rule below).
+      const command = mrtvCommand(msg);
+      if (command) {
+        await mrtvHandleCommand(msg, command);
+        return res.json({ ok: true, command: command.cmd });
+      }
+      // 3) No links at all in the group, deleted silently. Join/leave
+      // service messages have no text/caption, so they pass through here
+      // untouched.
+      if (msg.text || msg.caption) {
+        await mrtvHandleLinkMessage(msg);
+      }
+      res.json({ ok: true });
     } catch (e) { res.json({ ok: true }); }
   });
+
 
   // ADMIN: point the renewals bot's webhook at this service (one-time setup).
   // POST /api/mrtv/telegram/webhook/set — uses TELEGRAM_BOT_TOKEN from env.
@@ -1334,4 +1713,4 @@ function mountMrtvProvision(app, authRequired) {
   });
 }
 
-module.exports = { mountMrtvProvision, fillLoginEmail, packFor, LOGIN_TEMPLATE, logEmail, sendTelegramPing, getPanelCredits, applyReferralMonths };
+module.exports = { mountMrtvProvision, fillLoginEmail, packFor, LOGIN_TEMPLATE, logEmail, sendTelegramPing, getPanelCredits, applyReferralMonths, mrtvHasLink };

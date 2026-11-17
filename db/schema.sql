@@ -446,6 +446,22 @@ CREATE TABLE IF NOT EXISTS mrtv_ledger_events (
   note       TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- MRTV group ban list (Ryan 2026-11-17): separate from any Helix list.
+-- Populated by /ban in the Mister TV group, read on every join. A row may
+-- carry only a username: Telegram has no lookup-by-username, so an
+-- @username /ban stores no user id until that user joins.
+CREATE TABLE IF NOT EXISTS mrtv_bans (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  telegram_user_id BIGINT,
+  username TEXT,
+  first_name TEXT,
+  reason TEXT,
+  banned_by BIGINT,
+  banned_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS mrtv_bans_user_id_idx ON mrtv_bans (telegram_user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS mrtv_bans_username_idx ON mrtv_bans (lower(username));
 -- 2026-10-29: allow the 'reserve_adjust' and 'reset_boxes' event kinds
 -- (Mark settlement; Ryan's fresh-start reset).
 -- Idempotent: no-ops when the live constraint already permits them (e.g.
