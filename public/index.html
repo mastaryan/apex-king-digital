@@ -86,6 +86,33 @@ footer button:hover{color:var(--silver)}
 .chip.paid{background:rgba(52,209,123,.16);color:var(--green)}
 .chip.void,.chip.deleted,.chip.uncollectible{background:rgba(255,93,93,.14);color:var(--red)}
 .chip.test{background:rgba(125,184,255,.16);color:var(--blue)}
+/* QW Biotech operations (inside the QWB site card) */
+.chip.shipped{background:rgba(52,209,123,.16);color:var(--green)}
+.chip.unpaid{background:rgba(255,93,93,.14);color:var(--red)}
+.chip.pending{background:rgba(233,185,73,.16);color:var(--amber)}
+.chip.packed{background:rgba(125,184,255,.16);color:var(--blue)}
+.chip.manual{background:#2a2a31;color:var(--dim)}
+.ops{margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}
+.ops h4{font-size:13px;color:var(--dim);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px}
+.ops h4 .live{color:var(--blue);text-transform:none;letter-spacing:0;font-weight:400}
+table.ops-table{width:100%;border-collapse:collapse;font-size:14px}
+table.ops-table th{text-align:left;color:var(--dim);font-size:12.5px;text-transform:uppercase;letter-spacing:.5px;padding:6px 8px 6px 0;border-bottom:1px solid var(--line);font-weight:700}
+table.ops-table td{padding:8px 8px 8px 0;border-bottom:1px solid var(--line);vertical-align:top}
+table.ops-table tr.ord{cursor:pointer}
+table.ops-table tr.ord:hover td{background:#1b1b20}
+table.ops-table tr.ord.sel td{background:#1d1a13}
+table.ops-table td.num{font-weight:700;color:var(--blue);white-space:nowrap}
+table.ops-table td.tot{text-align:right;font-weight:700;white-space:nowrap}
+.qwb-detail{margin-top:14px;background:#0e0e11;border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+.qwb-detail h3{font-size:16px;margin-bottom:4px}
+.qwb-detail .dsub{font-size:13px;color:var(--dim);margin-bottom:8px}
+.dsec{margin-top:14px}
+.dsec h5{font-size:13px;color:var(--gold);margin:0 0 6px;text-transform:uppercase;letter-spacing:.06em}
+.dsec .row:first-of-type{border-top:none}
+.dsec .row{padding:5px 0}
+.hash{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;word-break:break-all}
+a.bl{color:var(--blue);text-decoration:none;font-size:13.5px}
+a.bl:hover{text-decoration:underline}
 .invrow .sp{margin-left:auto;display:flex;gap:7px;align-items:center}
 .invrow a{color:var(--blue);text-decoration:none;font-size:13px}
 .invrow a:hover{text-decoration:underline}
@@ -837,6 +864,7 @@ function render(){
         (s.notes ? '<p class="note">' + esc(s.notes) + '</p>' : '') +
         (s.invoiceGateHold ? '<p class="note">⏸ Invoice automation held for this site — manual sends only.</p>' : '') +
         '<div class="actions"><button class="btn" data-act="edit">Edit</button><button class="btn" data-act="invoice">🧾 Invoice</button><button class="btn danger" data-act="del">Delete</button></div>' +
+        qwbOpsHtml(s) +
         invListHtml(s) +
       '</div>';
     list.appendChild(div);
@@ -907,6 +935,145 @@ function invListHtml(s){
   return h + '</div>';
 }
 
+/* QW Biotech operations: live orders + emails + the full order form,
+   inside the QWB site card only. Loads lazily the first time the
+   card opens. Layout matches the approved mockup. Proof photos and
+   order actions stay in the QWB backend — this view links there. */
+function isQwbSite(s){
+  return (s.url || '').indexOf('qwbiotech.com') !== -1;
+}
+function qwbOpsHtml(s){
+  if (!isQwbSite(s)) return '';
+  return '<div class="ops" data-qwb="1"><h4>Operations <span class="live">· live from the QWB backend</span></h4><div class="qwb-body"><p class="note">Loading…</p></div></div>';
+}
+var QWB_STATUS = {
+  unpaid: { label: 'Unpaid', cls: 'unpaid' },
+  pending_verification: { label: 'Pending verification', cls: 'pending' },
+  paid: { label: 'Paid', cls: 'paid' },
+  processing: { label: 'Packed', cls: 'packed' },
+  shipped: { label: 'Shipped', cls: 'shipped' },
+  cancelled: { label: 'Cancelled', cls: 'manual' }
+};
+var QWB_KIND_LABELS = { staff_new_order: 'New order notice to info@', order_confirmation: 'Order confirmation + invoice', payment_confirmed: 'Payment confirmed', shipped: 'Shipped + tracking', verification: 'Email verification', welcome: 'Welcome to QW Biotech', password_reset: 'Password reset', manual_order_invite: 'Invoice link sent', other: 'Email' };
+function qwbMoney(n){ return '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function qwbWhen(iso){
+  if (!iso) return '—';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return esc(iso);
+  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+function qwbWhenLong(iso){
+  if (!iso) return '—';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return esc(iso);
+  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+function qwbLoadOps(card){
+  var box = card.querySelector('[data-qwb]');
+  if (!box || box.dataset.loaded === '1') return;
+  box.dataset.loaded = '1';
+  var body = box.querySelector('.qwb-body');
+  body.innerHTML = '<p class="note">Loading…</p>';
+  Promise.all([api('/api/qwb/orders'), api('/api/qwb/emails')]).then(function(rs){
+    var ro = rs[0], re = rs[1];
+    if (ro.j && ro.j.configured === false) {
+      body.innerHTML = '<p class="note">Not connected yet — the link between this dashboard and the QW Biotech site is not set up. Once the shared token is set on both services, orders and emails will show here.</p>';
+      return;
+    }
+    if (!ro.ok || !re.ok) {
+      body.innerHTML = '<p class="note">Could not load QW Biotech operations: ' + esc((ro.j && ro.j.error) || (re.j && re.j.error) || 'unknown error') + '</p>';
+      box.dataset.loaded = '0';
+      return;
+    }
+    qwbRenderOps(body, ro.j.orders || [], re.j.emails || []);
+  }).catch(function(){
+    body.innerHTML = '<p class="note">Could not load QW Biotech operations: network error.</p>';
+    box.dataset.loaded = '0';
+  });
+}
+function qwbRenderOps(body, orders, emails){
+  var h = '';
+  if (!orders.length) {
+    h += '<p class="note">No orders yet.</p>';
+  } else {
+    h += '<table class="ops-table"><tr><th>Order</th><th>Source</th><th>Status</th><th>Customer</th><th style="text-align:right">Total</th></tr>';
+    orders.forEach(function(o){
+      var st = QWB_STATUS[o.status] || { label: o.status, cls: 'manual' };
+      h += '<tr class="ord" data-qwb-order="' + esc(o.number) + '"><td class="num">' + esc(o.number) + '</td><td>' +
+        (o.source === 'manual' ? '<span class="chip manual">Manual</span>' : 'Website') + '</td><td><span class="chip ' + st.cls + '">' + esc(st.label) + '</span></td><td>' + esc(o.customer_name || '') + '</td><td class="tot">' + qwbMoney(o.total) + '</td></tr>';
+    });
+    h += '</table>';
+  }
+  h += '<div class="qwb-detail" data-qwb-detail><p class="note">Pick an order to see it here.</p></div>';
+  h += '<h4 style="margin-top:20px">Emails sent</h4>';
+  if (!emails.length) {
+    h += '<p class="note">No emails sent yet.</p>';
+  } else {
+    h += '<table class="ops-table"><tr><th>When</th><th>To</th><th>Subject</th><th>Order</th></tr>';
+    emails.forEach(function(m){
+      h += '<tr><td style="white-space:nowrap">' + qwbWhen(m.created_at) + '</td><td>' + esc(m.to_addr) + '</td><td>' + esc(m.subject || '') + (m.status === 'failed' ? ' <span class="chip unpaid">failed to send</span>' : '') + '</td><td class="num">' + (m.order_number ? esc(m.order_number) : '—') + '</td></tr>';
+    });
+    h += '</table>';
+  }
+  h += '<p class="note">Email list starts from the day the logging goes live — it shows who got what and when, not the full message text. Proof photos and order actions (mark paid, mark shipped) stay on the QWB backend.</p>';
+  body.innerHTML = h;
+  if (orders.length) qwbShowOrder(body, orders[0].number);
+}
+function qwbShowOrder(body, number){
+  body.querySelectorAll('tr.ord').forEach(function(r){ r.classList.toggle('sel', r.dataset.qwbOrder === number); });
+  var detail = body.querySelector('[data-qwb-detail]');
+  if (!detail) return;
+  detail.innerHTML = '<p class="note">Loading order ' + esc(number) + '…</p>';
+  api('/api/qwb/orders/' + encodeURIComponent(number)).then(function(r){
+    if (!r.ok) { detail.innerHTML = '<p class="note">Could not load that order.</p>'; return; }
+    detail.innerHTML = qwbDetailHtml(r.j);
+  }).catch(function(){ detail.innerHTML = '<p class="note">Could not load that order: network error.</p>'; });
+}
+function qwbDetailHtml(d){
+  var o = d.order;
+  var st = QWB_STATUS[o.status] || { label: o.status, cls: 'manual' };
+  var addr = o.address || {};
+  var cityLine = [addr.city, addr.state, addr.postal].filter(Boolean).join(' ');
+  var addrLine = [addr.street, addr.apt, cityLine, addr.country].filter(function(p){ return p; }).join(', ');
+  var sub = (o.source === 'manual' ? 'Manual order' : 'Website order') + ' · ' + st.label + ' · Placed ' + qwbWhenLong(o.created_at);
+  if (o.paid_at) sub += ' · Paid ' + qwbWhen(o.paid_at);
+  if (o.shipped_at) sub += ' · Shipped ' + qwbWhen(o.shipped_at);
+  if (o.cancelled_at) sub += ' · Cancelled ' + qwbWhen(o.cancelled_at);
+  if (o.source === 'manual' && o.rep) sub += ' · Taken by ' + o.rep;
+  if (o.source === 'website' && o.status === 'unpaid') sub += ' · Auto-cancels if unpaid in 24h';
+  var backendUrl = 'https://qwbiotech.com/staff/orders/' + encodeURIComponent(o.id);
+  var payRows = [];
+  (d.payments || []).forEach(function(p){
+    payRows.push([(p.channel ? esc(p.channel) + ' — ' : '') + qwbMoney(p.amount), '<span class="hash">tx ' + esc(p.tx_hash) + '</span>']);
+  });
+  if ((d.payments || []).length) {
+    var anyProof = (d.payments || []).some(function(p){ return p.has_proof; });
+    payRows.push(['Proof photo', anyProof ? '<a class="bl" href="' + backendUrl + '" target="_blank" rel="noopener">View in backend →</a>' : 'None']);
+  } else {
+    payRows.push(['No payments yet', '']);
+  }
+  var sections = [
+    { h: 'Customer', rows: [['Name', esc(o.customer_name || '—')], ['Email', esc(o.customer_email || '—')], ['Address', esc(addrLine || '—') + (addr.phone ? '<br>Phone: ' + esc(addr.phone) : '')]] },
+    { h: 'Items', rows: (o.items || []).map(function(l){ return [esc(l.name) + ' ' + esc(l.label) + ' × ' + esc(l.qty) + ' kit' + (l.qty > 1 ? 's' : ''), qwbMoney(l.price * l.qty)]; }) },
+    { h: 'Money', rows: [['Subtotal', qwbMoney(o.subtotal)], ['Discount', qwbMoney(o.discount)], ['Shipping — ' + esc(o.shipping_method), qwbMoney(o.shipping_cost)], ['Total', qwbMoney(o.total)]] },
+    { h: 'Shipping', rows: [['Method', esc(o.shipping_method)], ['Carrier', esc(o.carrier || '—')], ['Tracking', esc(o.tracking_number || '—')]] },
+    { h: 'Referral', rows: [['Referred by', esc(o.referred_by || '—')], ['Rep', esc(o.rep || '—')], ['Note', esc(o.note || '')]] },
+    { h: 'Payments', rows: payRows },
+    { h: 'COA uploads', rows: (d.coas || []).length ? (d.coas || []).map(function(c){ return [esc(c.file_name), qwbWhen(c.created_at)]; }) : [['None', '']] },
+    { h: 'Emails for this order', rows: (d.emails || []).length ? (d.emails || []).map(function(m){ return [esc(QWB_KIND_LABELS[m.kind] || m.kind || 'Email'), qwbWhen(m.created_at)]; }) : [['None yet', '']] }
+  ];
+  var h = '<h3>' + esc(o.number) + '</h3><p class="dsub">' + esc(sub) + '</p>';
+  sections.forEach(function(sec){
+    h += '<div class="dsec"><h5>' + esc(sec.h) + '</h5>';
+    sec.rows.forEach(function(r){
+      h += '<div class="row"><span class="k">' + r[0] + '</span><span class="v">' + r[1] + '</span></div>';
+    });
+    h += '</div>';
+  });
+  h += '<p class="note"><a class="bl" href="' + backendUrl + '" target="_blank" rel="noopener">Open this order in the QWB backend →</a></p>';
+  return h;
+}
+
 var invSiteId = null, invAttachment = null;
 function openInvoice(s){
   invSiteId = s.id; invAttachment = null;
@@ -972,7 +1139,18 @@ document.getElementById('inv-send').addEventListener('click', function(){
 
 document.getElementById('site-list').addEventListener('click', function(e){
   var head = e.target.closest('.site-head');
-  if (head) { head.closest('.site').classList.toggle('open'); return; }
+  if (head) {
+    var card = head.closest('.site');
+    card.classList.toggle('open');
+    if (card.classList.contains('open') && card.querySelector('[data-qwb]')) qwbLoadOps(card);
+    return;
+  }
+  var orow = e.target.closest('tr.ord[data-qwb-order]');
+  if (orow) {
+    var obody = orow.closest('.qwb-body');
+    if (obody) qwbShowOrder(obody, orow.dataset.qwbOrder);
+    return;
+  }
   var ibtn = e.target.closest('button[data-inv]');
   if (ibtn) {
     var iid = ibtn.closest('.site').dataset.id;
