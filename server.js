@@ -294,4 +294,7 @@ try { require('./db/home').mountHome(app, authRequired); } catch (e) { console.e
 // Audits (Phase 2, Tracking Health Score) — PG-backed, behind login
 try { require('./db/audits').mountAudits(app, authRequired); } catch (e) { console.error('audits mount', e.message); }
 
+// QWB operations (read-only proxy to the QWB site's /api/apex API)
+try { require('./db/qwb').mountQwb(app, authRequired); } catch (e) { console.error('qwb mount', e.message); }
+
 app.listen(PORT, () => console.log('apex-dashboard listening on ' + PORT));
