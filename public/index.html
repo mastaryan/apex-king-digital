@@ -1045,7 +1045,7 @@ function qwbDetailHtml(d){
   if (o.shipped_at) sub += ' · Shipped ' + qwbWhen(o.shipped_at);
   if (o.cancelled_at) sub += ' · Cancelled ' + qwbWhen(o.cancelled_at);
   if (o.source === 'manual' && o.rep) sub += ' · Taken by ' + o.rep;
-  if (o.source === 'website' && o.status === 'unpaid') sub += ' · Auto-cancels if unpaid in 24h';
+  if (o.source === 'website' && o.status === 'unpaid') sub += ' · Auto-cancels if unpaid in 12h (4h over $10,000)';
   var backendUrl = 'https://qwbiotech.com/staff/orders/' + encodeURIComponent(o.id);
   var payRows = [];
   (d.payments || []).forEach(function(p){
