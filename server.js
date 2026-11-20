@@ -297,4 +297,7 @@ try { require('./db/audits').mountAudits(app, authRequired); } catch (e) { conso
 // QWB operations (read-only proxy to the QWB site's /api/apex API)
 try { require('./db/qwb').mountQwb(app, authRequired); } catch (e) { console.error('qwb mount', e.message); }
 
+// GLP operations (read-only proxy to the GLP site's /api/apex API)
+try { require('./db/glp').mountGlp(app, authRequired); } catch (e) { console.error('glp mount', e.message); }
+
 app.listen(PORT, () => console.log('apex-dashboard listening on ' + PORT));

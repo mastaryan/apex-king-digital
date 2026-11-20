@@ -106,6 +106,10 @@ table.ops-table td.tot{text-align:right;font-weight:700;white-space:nowrap}
 .qwb-detail{margin-top:14px;background:#0e0e11;border:1px solid var(--line);border-radius:12px;padding:16px 18px}
 .qwb-detail h3{font-size:16px;margin-bottom:4px}
 .qwb-detail .dsub{font-size:13px;color:var(--dim);margin-bottom:8px}
+/* GLP operations (inside the GLP site card) — same box as QWB */
+.glp-detail{margin-top:14px;background:#0e0e11;border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+.glp-detail h3{font-size:16px;margin-bottom:4px}
+.glp-detail .dsub{font-size:13px;color:var(--dim);margin-bottom:8px}
 .dsec{margin-top:14px}
 .dsec h5{font-size:13px;color:var(--gold);margin:0 0 6px;text-transform:uppercase;letter-spacing:.06em}
 .dsec .row:first-of-type{border-top:none}
@@ -865,6 +869,7 @@ function render(){
         (s.invoiceGateHold ? '<p class="note">⏸ Invoice automation held for this site — manual sends only.</p>' : '') +
         '<div class="actions"><button class="btn" data-act="edit">Edit</button><button class="btn" data-act="invoice">🧾 Invoice</button><button class="btn danger" data-act="del">Delete</button></div>' +
         qwbOpsHtml(s) +
+        glpOpsHtml(s) +
         invListHtml(s) +
       '</div>';
     list.appendChild(div);
@@ -1074,6 +1079,133 @@ function qwbDetailHtml(d){
   return h;
 }
 
+/* GLP operations: live orders + emails + the full order form,
+   inside the GLP site card only. Mirrors the QWB block above;
+   only the site, endpoints, labels, and auto-cancel window differ.
+   Money/date formatting reuses the QWB helpers (qwbMoney, qwbWhen,
+   qwbWhenLong) — they are plain formatters, not QWB-specific. */
+function isGlpSite(s){
+  return (s.url || '').indexOf('lucypeptide.com') !== -1;
+}
+function glpOpsHtml(s){
+  if (!isGlpSite(s)) return '';
+  return '<div class="ops" data-glp="1"><h4>Operations <span class="live">· live from the GLP backend</span></h4><div class="glp-body"><p class="note">Loading…</p></div></div>';
+}
+var GLP_STATUS = {
+  unpaid: { label: 'Unpaid', cls: 'unpaid' },
+  pending_verification: { label: 'Pending verification', cls: 'pending' },
+  paid: { label: 'Paid', cls: 'paid' },
+  processing: { label: 'Packed', cls: 'packed' },
+  shipped: { label: 'Shipped', cls: 'shipped' },
+  cancelled: { label: 'Cancelled', cls: 'manual' }
+};
+var GLP_KIND_LABELS = { staff_new_order: 'New order notice to info@', order_confirmation: 'Order confirmation + invoice', payment_confirmed: 'Payment confirmed', shipped: 'Shipped + tracking', verification: 'Email verification', welcome: 'Welcome to GLP', password_reset: 'Password reset', manual_order_invite: 'Invoice link sent', shipping_photo: 'Shipping photo', payment_received: 'Payment received — checking it', staff_payment_received: 'Payment received notice to info@', payment_nudge: 'Payment reminder', payment_due: 'Payment due', other: 'Email' };
+function glpLoadOps(card){
+  var box = card.querySelector('[data-glp]');
+  if (!box || box.dataset.loaded === '1') return;
+  box.dataset.loaded = '1';
+  var body = box.querySelector('.glp-body');
+  body.innerHTML = '<p class="note">Loading…</p>';
+  Promise.all([api('/api/glp/orders'), api('/api/glp/emails')]).then(function(rs){
+    var ro = rs[0], re = rs[1];
+    if (ro.j && ro.j.configured === false) {
+      body.innerHTML = '<p class="note">Not connected yet — the link between this dashboard and the GLP site is not set up. Once the shared token is set on both services, orders and emails will show here.</p>';
+      return;
+    }
+    if (!ro.ok || !re.ok) {
+      body.innerHTML = '<p class="note">Could not load GLP operations: ' + esc((ro.j && ro.j.error) || (re.j && re.j.error) || 'unknown error') + '</p>';
+      box.dataset.loaded = '0';
+      return;
+    }
+    glpRenderOps(body, ro.j.orders || [], re.j.emails || []);
+  }).catch(function(){
+    body.innerHTML = '<p class="note">Could not load GLP operations: network error.</p>';
+    box.dataset.loaded = '0';
+  });
+}
+function glpRenderOps(body, orders, emails){
+  var h = '';
+  if (!orders.length) {
+    h += '<p class="note">No orders yet.</p>';
+  } else {
+    h += '<table class="ops-table"><tr><th>Order</th><th>Source</th><th>Status</th><th>Customer</th><th style="text-align:right">Total</th></tr>';
+    orders.forEach(function(o){
+      var st = GLP_STATUS[o.status] || { label: o.status, cls: 'manual' };
+      h += '<tr class="ord" data-glp-order="' + esc(o.number) + '"><td class="num">' + esc(o.number) + '</td><td>' +
+        (o.source === 'manual' ? '<span class="chip manual">Manual</span>' : 'Website') + '</td><td><span class="chip ' + st.cls + '">' + esc(st.label) + '</span></td><td>' + esc(o.customer_name || '') + '</td><td class="tot">' + qwbMoney(o.total) + '</td></tr>';
+    });
+    h += '</table>';
+  }
+  h += '<div class="glp-detail" data-glp-detail><p class="note">Pick an order to see it here.</p></div>';
+  h += '<h4 style="margin-top:20px">Emails sent</h4>';
+  if (!emails.length) {
+    h += '<p class="note">No emails sent yet.</p>';
+  } else {
+    h += '<table class="ops-table"><tr><th>When</th><th>To</th><th>Subject</th><th>Order</th></tr>';
+    emails.forEach(function(m){
+      h += '<tr><td style="white-space:nowrap">' + qwbWhen(m.created_at) + '</td><td>' + esc(m.to_addr) + '</td><td>' + esc(m.subject || '') + (m.status === 'failed' ? ' <span class="chip unpaid">failed to send</span>' : '') + '</td><td class="num">' + (m.order_number ? esc(m.order_number) : '—') + '</td></tr>';
+    });
+    h += '</table>';
+  }
+  h += '<p class="note">Email list starts from the day the logging goes live — it shows who got what and when, not the full message text. Proof photos and order actions (mark paid, mark shipped) stay on the GLP backend.</p>';
+  body.innerHTML = h;
+  if (orders.length) glpShowOrder(body, orders[0].number);
+}
+function glpShowOrder(body, number){
+  body.querySelectorAll('tr.ord').forEach(function(r){ r.classList.toggle('sel', r.dataset.glpOrder === number); });
+  var detail = body.querySelector('[data-glp-detail]');
+  if (!detail) return;
+  detail.innerHTML = '<p class="note">Loading order ' + esc(number) + '…</p>';
+  api('/api/glp/orders/' + encodeURIComponent(number)).then(function(r){
+    if (!r.ok) { detail.innerHTML = '<p class="note">Could not load that order.</p>'; return; }
+    detail.innerHTML = glpDetailHtml(r.j);
+  }).catch(function(){ detail.innerHTML = '<p class="note">Could not load that order: network error.</p>'; });
+}
+function glpDetailHtml(d){
+  var o = d.order;
+  var st = GLP_STATUS[o.status] || { label: o.status, cls: 'manual' };
+  var addr = o.address || {};
+  var cityLine = [addr.city, addr.state, addr.postal].filter(Boolean).join(' ');
+  var addrLine = [addr.street, addr.apt, cityLine, addr.country].filter(function(p){ return p; }).join(', ');
+  var sub = (o.source === 'manual' ? 'Manual order' : 'Website order') + ' · ' + st.label + ' · Placed ' + qwbWhenLong(o.created_at);
+  if (o.paid_at) sub += ' · Paid ' + qwbWhen(o.paid_at);
+  if (o.shipped_at) sub += ' · Shipped ' + qwbWhen(o.shipped_at);
+  if (o.cancelled_at) sub += ' · Cancelled ' + qwbWhen(o.cancelled_at);
+  if (o.source === 'manual' && o.rep) sub += ' · Taken by ' + o.rep;
+  if (o.source === 'website' && o.status === 'unpaid') sub += ' · Auto-cancels if unpaid in 12h (4h over $10,000)';
+  var backendUrl = 'https://lucypeptide.com/staff/orders/' + encodeURIComponent(o.id);
+  var payRows = [];
+  (d.payments || []).forEach(function(p){
+    payRows.push([(p.channel ? esc(p.channel) + ' — ' : '') + qwbMoney(p.amount), '<span class="hash">tx ' + esc(p.tx_hash) + '</span>']);
+  });
+  if ((d.payments || []).length) {
+    var anyProof = (d.payments || []).some(function(p){ return p.has_proof; });
+    payRows.push(['Proof photo', anyProof ? '<a class="bl" href="' + backendUrl + '" target="_blank" rel="noopener">View in backend →</a>' : 'None']);
+  } else {
+    payRows.push(['No payments yet', '']);
+  }
+  var sections = [
+    { h: 'Customer', rows: [['Name', esc(o.customer_name || '—')], ['Email', esc(o.customer_email || '—')], ['Address', esc(addrLine || '—') + (addr.phone ? '<br>Phone: ' + esc(addr.phone) : '')]] },
+    { h: 'Items', rows: (o.items || []).map(function(l){ return [esc(l.name) + ' ' + esc(l.label) + ' × ' + esc(l.qty) + ' kit' + (l.qty > 1 ? 's' : ''), qwbMoney(l.price * l.qty)]; }) },
+    { h: 'Money', rows: [['Subtotal', qwbMoney(o.subtotal)], ['Discount', qwbMoney(o.discount)], ['Shipping — ' + esc(o.shipping_method), qwbMoney(o.shipping_cost)], ['Total', qwbMoney(o.total)]] },
+    { h: 'Shipping', rows: [['Method', esc(o.shipping_method)], ['Carrier', esc(o.carrier || '—')], ['Tracking', esc(o.tracking_number || '—')]] },
+    { h: 'Referral', rows: [['Referred by', esc(o.referred_by || '—')], ['Rep', esc(o.rep || '—')], ['Note', esc(o.note || '')]] },
+    { h: 'Payments', rows: payRows },
+    { h: 'COA uploads', rows: (d.coas || []).length ? (d.coas || []).map(function(c){ return [esc(c.file_name), qwbWhen(c.created_at)]; }) : [['None', '']] },
+    { h: 'Emails for this order', rows: (d.emails || []).length ? (d.emails || []).map(function(m){ return [esc(GLP_KIND_LABELS[m.kind] || m.kind || 'Email'), qwbWhen(m.created_at)]; }) : [['None yet', '']] }
+  ];
+  var h = '<h3>' + esc(o.number) + '</h3><p class="dsub">' + esc(sub) + '</p>';
+  sections.forEach(function(sec){
+    h += '<div class="dsec"><h5>' + esc(sec.h) + '</h5>';
+    sec.rows.forEach(function(r){
+      h += '<div class="row"><span class="k">' + r[0] + '</span><span class="v">' + r[1] + '</span></div>';
+    });
+    h += '</div>';
+  });
+  h += '<p class="note"><a class="bl" href="' + backendUrl + '" target="_blank" rel="noopener">Open this order in the GLP backend →</a></p>';
+  return h;
+}
+
 var invSiteId = null, invAttachment = null;
 function openInvoice(s){
   invSiteId = s.id; invAttachment = null;
@@ -1143,12 +1275,19 @@ document.getElementById('site-list').addEventListener('click', function(e){
     var card = head.closest('.site');
     card.classList.toggle('open');
     if (card.classList.contains('open') && card.querySelector('[data-qwb]')) qwbLoadOps(card);
+    if (card.classList.contains('open') && card.querySelector('[data-glp]')) glpLoadOps(card);
     return;
   }
   var orow = e.target.closest('tr.ord[data-qwb-order]');
   if (orow) {
     var obody = orow.closest('.qwb-body');
     if (obody) qwbShowOrder(obody, orow.dataset.qwbOrder);
+    return;
+  }
+  var grow = e.target.closest('tr.ord[data-glp-order]');
+  if (grow) {
+    var gbody = grow.closest('.glp-body');
+    if (gbody) glpShowOrder(gbody, grow.dataset.glpOrder);
     return;
   }
   var ibtn = e.target.closest('button[data-inv]');
