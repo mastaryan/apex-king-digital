@@ -275,6 +275,10 @@ async function emailCompanionToClient(site, rec, inv) {
       "<p>Attached is the website performance &amp; SEO review we prepared for " + escapeHtml(site.name) + " (" + escapeHtml(domainOf(site)) + ") — how the site performed this year and the improvements we recommend next.</p>" +
       "<p>Your annual website renewal invoice " + escapeHtml(rec.number || "") + " ($100, due " + escapeHtml(fmtDate(rec.dueDate)) + ") is coming in a separate email from Stripe.</p>" +
       (rec.hostedUrl ?
+        // Gmail inbox button: JSON-LD ViewAction makes Gmail show a
+        // "Pay Invoice" button in the inbox list itself. Raw URL here —
+        // script content is not HTML-escaped.
+        "<script type=\"application/ld+json\">{\"@context\":\"http://schema.org\",\"@type\":\"EmailMessage\",\"potentialAction\":{\"@type\":\"ViewAction\",\"name\":\"Pay Invoice\",\"url\":\"" + rec.hostedUrl + "\"},\"description\":\"Pay your Apex King Digital website renewal invoice\"}</script>" +
         "<p><a href=\"" + escapeHtml(rec.hostedUrl) + "\" style=\"display:inline-block;background:#1a73e8;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:6px;font-weight:bold;font-size:16px;\">Pay Invoice</a></p>" +
         "<p style=\"font-size:12px;color:#666;\">Or copy this link:<br><a href=\"" + escapeHtml(rec.hostedUrl) + "\" style=\"color:#1a73e8;word-break:break-all;\">" + escapeHtml(rec.hostedUrl) + "</a></p>"
         : "") +
