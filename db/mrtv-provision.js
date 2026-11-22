@@ -1415,9 +1415,10 @@ function mountMrtvProvision(app, authRequired) {
         });
       }
       const provAt = /^\d{4}-\d{2}-\d{2}$/.test(String(b.provisioned_at || "")) ? b.provisioned_at : null;
+      // 2026-11-22: backfill keeps tv_count in sync with lines (was left stale, so a split showed the old count).
       const { rows } = await getPool().query(
-        "UPDATE mrtv_customers SET lines = $1::jsonb, provisioned_at = COALESCE($2::timestamptz, provisioned_at, now()) WHERE id = $3 RETURNING id, name",
-        [JSON.stringify(lines), provAt, req.params.id]);
+        "UPDATE mrtv_customers SET lines = $1::jsonb, provisioned_at = COALESCE($2::timestamptz, provisioned_at, now()), tv_count = $4 WHERE id = $3 RETURNING id, name",
+        [JSON.stringify(lines), provAt, req.params.id, lines.length]);
       if (!rows.length) return res.status(404).json({ error: "customer not found" });
       res.json({ ok: true, id: rows[0].id, name: rows[0].name, lines: lines.length });
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
