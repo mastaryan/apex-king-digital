@@ -66,6 +66,12 @@ function escapeHtml(s) {
 }
 // Pay button (Ryan 2026-11-04 email-buttons rule: proper button + raw link
 // below as fallback, never a bare long URL). Cash App URL is a constant.
+// Cash App link for M.R. TV renewal / win-back emails. Module scope:
+// payButtonHtml() (also module scope) builds the button, and the renewal
+// handler inside mountHome uses the same link. (Was a const inside
+// mountHome only — payButtonHtml() threw "MRTV_CASHAPP is not defined"
+// the first time a renewal email was actually due, 2026-11-24.)
+const MRTV_CASHAPP = "https://cash.app/$ApexKingDigital";
 function payButtonHtml() {
   return "<p><a href=\"" + MRTV_CASHAPP + "\" style=\"display:inline-block;background:#1a73e8;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:6px;font-weight:bold;font-size:16px;\">Pay Bill</a></p>" +
     "<p style=\"font-size:12px;color:#666;\">Or copy this link:<br><a href=\"" + MRTV_CASHAPP + "\" style=\"color:#1a73e8;word-break:break-all;\">" + MRTV_CASHAPP + "</a></p>";
@@ -853,7 +859,6 @@ function mountHome(app, authRequired) {
   // shared SMTP_* credential.
   // The email carries the renewal amount + Cash App link; Ryan marks paid
   // in the tracker when the money lands, then hits "Renewal paid".
-  const MRTV_CASHAPP = "https://cash.app/$ApexKingDigital";
   function mrtvMailer() {
     const user = process.env.TV_SMTP_USER || process.env.SMTP_USER;
     const pass = process.env.TV_SMTP_PASS || process.env["SMTP_" + "PASS"];
