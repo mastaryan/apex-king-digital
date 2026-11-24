@@ -74,6 +74,32 @@ async function sendTelegramPing(text) {
   } catch (e) { return { ok: false, error: String(e.message || e).slice(0, 160) }; }
 }
 
+// Referrer DM (Ryan 2026-11-23, option B): a bot can only DM users who
+// have started it. Referrers met us through the ORDER bot (@WatchMRTV_bot,
+// the mini app), so the DM goes out on MRTV_TG_BOT_TOKEN when set,
+// falling back to TELEGRAM_BOT_TOKEN (renewals bot — only reaches users
+// who started that bot). Never throws; a failed DM is silent — the
+// free-month email still goes out.
+async function sendReferrerDm(chatId, text) {
+  const tokens = [];
+  const tgTok = process.env.MRTV_TG_BOT_TOKEN || "";
+  const mainTok = process.env.TELEGRAM_BOT_TOKEN || "";
+  if (tgTok) tokens.push(tgTok);
+  if (mainTok && mainTok !== tgTok) tokens.push(mainTok);
+  for (const token of tokens) {
+    try {
+      const r = await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: String(chatId), text: String(text || "").slice(0, 4000) }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok && j.ok !== false) return { ok: true };
+    } catch (e) { /* try the next token */ }
+  }
+  return { ok: false };
+}
+
 // Panel GET. Throws NO_KEY when the env var is missing so callers can
 // answer "not configured" instead of "panel down".
 async function panelCall(params) {
@@ -1044,14 +1070,14 @@ function mountMrtvProvision(app, authRequired) {
       // referral code. If the form value matches a customer's order_code
       // (case-insensitive, spaces stripped), link it. A plain name stays
       // unlinked for Ryan to review — the code is the reliable match.
-      let referrerId = null, referrerName = null, refIsCode = false;
+      let referrerId = null, referrerName = null, referrerCode = null, referrerChatId = null, refIsCode = false;
       if (ref) {
         const code = ref.toUpperCase().replace(/[^A-Z0-9-]/g, "");
         refIsCode = code.indexOf("MR-") === 0;
         if (code) {
           const { rows: m } = await getPool().query(
-            "SELECT id, name FROM mrtv_customers WHERE UPPER(order_code) = $1 LIMIT 1", [code]);
-          if (m.length) { referrerId = m[0].id; referrerName = m[0].name; }
+            "SELECT id, name, order_code, telegram_chat_id FROM mrtv_customers WHERE UPPER(order_code) = $1 LIMIT 1", [code]);
+          if (m.length) { referrerId = m[0].id; referrerName = m[0].name; referrerCode = m[0].order_code; referrerChatId = m[0].telegram_chat_id; }
         }
       }
       if (ref) noteParts.push("Referred by: " + ref +
@@ -1072,6 +1098,11 @@ function mountMrtvProvision(app, authRequired) {
       await sendTelegramPing("🛒 New website order: " + name + " — " + tvs + " TV" + (tvs === 1 ? "" : "s") + ", " + plan +
         (amountC !== null ? ", $" + (amountC / 100).toFixed(2).replace(/\.00$/, "") : "") + " via " + payMethod +
         ", code " + code + (referrerName ? ". Referred by " + referrerName + " (" + ref + ")" : "") + ". Review in the dashboard, then Mark paid & provision.");
+      // Referrer DM (option B): only when the referrer has a linked Telegram,
+      // and never to the buyer themself.
+      if (referrerId && referrerId !== id && referrerChatId) {
+        await sendReferrerDm(referrerChatId, "🎉 Someone signed up with your code " + (referrerCode || ref) + " — 1 free month banked. Thanks for sharing M.R. TV!");
+      }
       res.json({ ok: true, id: id, order_code: code });
     } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e).slice(0, 300) }); }
   });
