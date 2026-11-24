@@ -117,7 +117,10 @@ function validateInitData(initData) {
   if (!tgUser || !tgUser.id) return null;
   const authDate = Number(params.get("auth_date") || 0);
   if (authDate && Date.now() / 1000 - authDate > 86400) return null; // stale initData
-  return { id: String(tgUser.id), first_name: tgUser.first_name || "", username: tgUser.username || "" };
+  // start_param rides along (referral link: t.me/WatchMRTV_bot?start=ref_MR-####
+  // or ?startapp=ref_MR-####) — it is part of the HMAC-signed initData, so a
+  // referral taken from it is as trustworthy as a typed code.
+  return { id: String(tgUser.id), first_name: tgUser.first_name || "", username: tgUser.username || "", start_param: params.get("start_param") || "" };
 }
 
 // Signed customer session token: v1.<customerId>.<expUnix>.<hmacHex>.
@@ -445,7 +448,14 @@ function mountMrtvTgApp(app, authRequired) {
       if (devices) noteParts.push("Devices: " + devices);
       const countries = cleanStr(o.custom_countries, 200);
       if (countries) noteParts.push("Countries: " + countries);
-      const ref = cleanStr(o.referred_by, 120);
+      // Referral link (Ryan 2026-11-23): a start_param of ref_MR-#### counts
+      // as the referral when the customer didn't type a code — the link does
+      // the typing. A typed code always wins over the link.
+      let ref = cleanStr(o.referred_by, 120);
+      if (!ref && tgUser && tgUser.start_param) {
+        const m = String(tgUser.start_param).match(/^ref_(.+)$/i);
+        if (m) ref = cleanStr(m[1], 120);
+      }
       let referrerId = null, referrerName = null;
       if (ref) {
         const rcode = ref.toUpperCase().replace(/[^A-Z0-9-]/g, "");
