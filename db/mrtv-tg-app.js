@@ -170,6 +170,33 @@ async function sendTelegramPing(text) {
   } catch (e) { const out = { ok: false, error: String(e.message || e).slice(0, 120) }; recordPing("sendMessage", text, out); return out; }
 }
 
+// Referrer DM (Ryan 2026-11-23, option B): same token order as botToken()
+// (order bot first), plus the renewals bot as a fallback — a bot can only
+// DM users who have started it, and referrers met us through the ORDER bot
+// (@WatchMRTV_bot, the mini app). Never throws; a failed DM is silent —
+// the free-month email still goes out.
+async function sendReferrerDm(chatId, text) {
+  const tokens = [];
+  const tgTok = process.env.MRTV_TG_BOT_TOKEN || "";
+  const mainTok = process.env.TELEGRAM_BOT_TOKEN || "";
+  if (tgTok) tokens.push(tgTok);
+  if (mainTok && mainTok !== tgTok) tokens.push(mainTok);
+  for (const token of tokens) {
+    try {
+      const r = await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: String(chatId), text: String(text || "").slice(0, 4000) }),
+      });
+      const j = await r.json().catch(() => ({}));
+      const out = { ok: r.ok && j.ok !== false };
+      recordPing("referrer-dm", text, out);
+      if (out.ok) return out;
+    } catch (e) { /* try the next token */ }
+  }
+  return { ok: false };
+}
+
 // Payment screenshot -> Ryan's Telegram DM as a photo. Best-effort: the
 // order succeeds even if this fails (the screenshot is optional).
 async function sendTelegramPhoto(base64DataUrl, caption) {
@@ -456,13 +483,13 @@ function mountMrtvTgApp(app, authRequired) {
         const m = String(tgUser.start_param).match(/^ref_(.+)$/i);
         if (m) ref = cleanStr(m[1], 120);
       }
-      let referrerId = null, referrerName = null;
+      let referrerId = null, referrerName = null, referrerCode = null, referrerChatId = null;
       if (ref) {
         const rcode = ref.toUpperCase().replace(/[^A-Z0-9-]/g, "");
         if (rcode) {
           const { rows: m } = await getPool().query(
-            "SELECT id, name FROM mrtv_customers WHERE UPPER(order_code) = $1 LIMIT 1", [rcode]);
-          if (m.length) { referrerId = m[0].id; referrerName = m[0].name; }
+            "SELECT id, name, order_code, telegram_chat_id FROM mrtv_customers WHERE UPPER(order_code) = $1 LIMIT 1", [rcode]);
+          if (m.length) { referrerId = m[0].id; referrerName = m[0].name; referrerCode = m[0].order_code; referrerChatId = m[0].telegram_chat_id; }
         }
       }
       if (ref) noteParts.push("Referred by: " + ref + (referrerName ? " (matched: " + referrerName + ")" : ""));
@@ -492,6 +519,11 @@ function mountMrtvTgApp(app, authRequired) {
         ", $" + (totalC / 100).toFixed(2).replace(/\.00$/, "") + " via " + payMethod + ", code " + code +
         (referrerName ? ". Referred by " + referrerName + " (" + ref + ")" : "") +
         ". Review in the dashboard, then Mark paid & provision.");
+      // Referrer DM (option B): only when the referrer has a linked Telegram,
+      // and never to the buyer themself.
+      if (referrerId && referrerId !== id && referrerChatId) {
+        await sendReferrerDm(referrerChatId, "🎉 Someone signed up with your code " + (referrerCode || ref) + " — 1 free month banked. Thanks for sharing M.R. TV!");
+      }
       const screenshot = o.screenshot || body.screenshot || null;
       if (screenshot) {
         await sendTelegramPhoto(screenshot, "Payment screenshot — " + code + " (" + name + ", " + tvs + " TV" + (tvs === 1 ? "" : "s") + ", " + plan + ")");
