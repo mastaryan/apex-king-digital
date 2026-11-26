@@ -72,9 +72,15 @@ function escapeHtml(s) {
 // mountHome only — payButtonHtml() threw "MRTV_CASHAPP is not defined"
 // the first time a renewal email was actually due, 2026-11-24.)
 const MRTV_CASHAPP = "https://cash.app/$ApexKingDigital";
-function payButtonHtml() {
-  return "<p><a href=\"" + MRTV_CASHAPP + "\" style=\"display:inline-block;background:#1a73e8;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:6px;font-weight:bold;font-size:16px;\">Pay Bill</a></p>" +
-    "<p style=\"font-size:12px;color:#666;\">Or copy this link:<br><a href=\"" + MRTV_CASHAPP + "\" style=\"color:#1a73e8;word-break:break-all;\">" + MRTV_CASHAPP + "</a></p>";
+function cashAppUrl(amountCents) {
+  const c = Number(amountCents) || 0;
+  if (c <= 0) return MRTV_CASHAPP;
+  return MRTV_CASHAPP + "/" + (c % 100 === 0 ? String(c / 100) : (c / 100).toFixed(2));
+}
+function payButtonHtml(amountCents) {
+  const url = cashAppUrl(amountCents);
+  return "<p><a href=\"" + url + "\" style=\"display:inline-block;background:#1a73e8;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:6px;font-weight:bold;font-size:16px;\">Pay Bill</a></p>" +
+    "<p style=\"font-size:12px;color:#666;\">Or copy this link:<br><a href=\"" + url + "\" style=\"color:#1a73e8;word-break:break-all;\">" + url + "</a></p>";
 }
 
 // Dates in Ryan's timezone (America/New_York) as YYYY-MM-DD.
@@ -889,7 +895,8 @@ function mountHome(app, authRequired) {
         subject: "We'd love you back — 50% off your next month",
         headline: "50% off your next month",
         detail: "Come back for " + fmtCents(off) + " instead of " + fmtCents(amt) + " — one month at half price, then back to " + fmtCents(amt) + "/month after that.",
-        payLine: "Pay " + fmtCents(off) + " here: " + MRTV_CASHAPP,
+        payLine: "Pay " + fmtCents(off) + " here: " + cashAppUrl(off),
+        payCents: off,
       };
     }
     const offAmt = Math.max(0, amt - 1000);
@@ -898,14 +905,16 @@ function mountHome(app, authRequired) {
         subject: "A comeback deal: $10 off + a free extra connection",
         headline: "$10 off your yearly renewal + one free extra connection",
         detail: "Renew for " + fmtCents(offAmt) + " instead of " + fmtCents(amt) + ", and I'll throw in an extra connection free for the whole year.",
-        payLine: "Pay " + fmtCents(offAmt) + " here: " + MRTV_CASHAPP,
+        payLine: "Pay " + fmtCents(offAmt) + " here: " + cashAppUrl(offAmt),
+        payCents: offAmt,
       };
     }
     return {
       subject: "A comeback deal: $10 off your yearly renewal",
       headline: "$10 off your yearly renewal",
       detail: "Renew for " + fmtCents(offAmt) + " instead of " + fmtCents(amt) + ".",
-      payLine: "Pay " + fmtCents(offAmt) + " here: " + MRTV_CASHAPP,
+      payLine: "Pay " + fmtCents(offAmt) + " here: " + cashAppUrl(offAmt),
+        payCents: offAmt,
     };
   }
   app.post("/api/mrtv/renewals/run", authRequired, async (req, res) => {
@@ -922,7 +931,7 @@ function mountHome(app, authRequired) {
         referral.errors.push("applyReferralMonths: " + String(e.message || e).slice(0, 200));
       }
       const { rows } = await getPool().query(
-        "SELECT id, name, email, plan, end_date, tv_count, renewal_amount_cents, renewal_email_sent_for, renewal_touches_sent " +
+        "SELECT id, name, email, plan, end_date, tv_count, renewal_amount_cents, renewal_email_sent_for, renewal_touches_sent, order_code, payment_method " +
         "FROM mrtv_customers WHERE renewal_amount_cents IS NOT NULL AND end_date IS NOT NULL");
       const mailer = mrtvMailer();
       let sent = 0, skipped = 0;
@@ -951,6 +960,21 @@ function mountHome(app, authRequired) {
         const first = String(g.rows[0].name || "").split(" ")[0] || "there";
         const totalC = g.rows.reduce(function (s, r) { return s + (r.renewal_amount_cents || 0); }, 0);
         const total = fmtCents(totalC);
+        const codes = [];
+        g.rows.forEach(function (r) { if (r.order_code && codes.indexOf(r.order_code) < 0) codes.push(r.order_code); });
+        const methods = g.rows.map(function (r) { return String(r.payment_method || "").toLowerCase(); });
+        const paidBy = function (needle) { return methods.some(function (m) { return m.indexOf(needle) >= 0; }); };
+        let altPayText = "", altPayHtml = "";
+        if (paidBy("zelle")) {
+          altPayText += "Paid by Zelle last time? You can pay by Zelle again — same as before.\n";
+          altPayHtml += "<p>Paid by Zelle last time? You can pay by Zelle again — same as before.</p>";
+        }
+        if (paidBy("crypto") || paidBy("coin") || paidBy("usdc") || paidBy("bitcoin") || paidBy("btc")) {
+          altPayText += "Paid with crypto last time? You can pay with crypto again — just reply to this email first and I'll confirm the wallet before you send.\n";
+          altPayHtml += "<p>Paid with crypto last time? You can pay with crypto again — just reply to this email first and I'll confirm the wallet before you send.</p>";
+        }
+        const noteRuleText = codes.length ? "IMPORTANT: Put ONLY your account number in the Cash App note — nothing else. Anything extra in the note and the payment will be canceled.\n" : "";
+        const noteRuleHtml = codes.length ? "<p><strong>Important:</strong> Put ONLY your account number in the Cash App note — nothing else. Anything extra in the note and the payment will be canceled.</p>" : "";
         let text, html;
         if (g.rows.length === 1) {
           const r = g.rows[0];
@@ -958,31 +982,39 @@ function mountHome(app, authRequired) {
             "Hi " + first + ",\n\n" +
             "Your M.R. TV plan (" + r.plan + ") renews on " + fmtLongDate(g.endIso) + " — " + dl + " days from now.\n\n" +
             "Amount due: " + total + "\n" +
-            "Pay here: " + MRTV_CASHAPP + "\n\n" +
+            (codes.length ? "Your account number: " + codes[0] + "\n" : "") +
+            "Pay here: " + cashAppUrl(totalC) + "\n" +
+            noteRuleText +
+            altPayText + "\n" +
             "Just reply to this email once you've paid and I'll get you extended.\n\n" +
             "Thanks,\nRyan — M.R. TV";
           html =
             "<p>Hi " + escapeHtml(first) + ",</p>" +
             "<p>Your M.R. TV plan (" + escapeHtml(r.plan) + ") renews on " + escapeHtml(fmtLongDate(g.endIso)) + " — " + dl + " days from now.</p>" +
             "<p><strong>Amount due: " + escapeHtml(total) + "</strong></p>" +
-            payButtonHtml() +
+            (codes.length ? "<p>Your account number: <strong>" + escapeHtml(codes[0]) + "</strong></p>" : "") +
+            payButtonHtml(totalC) +
+            noteRuleHtml +
+            altPayHtml +
             "<p>Just reply to this email once you've paid and I'll get you extended.</p>" +
             "<p>Thanks,<br>Ryan — M.R. TV</p>";
         } else {
           const lines = g.rows.map(function (r) {
             const n = r.tv_count || 1;
-            return "• " + n + " TV" + (n > 1 ? "s" : "") + " (" + r.plan + ") — " + fmtCents(r.renewal_amount_cents);
+            return "• " + n + " TV" + (n > 1 ? "s" : "") + " (" + r.plan + ") — " + fmtCents(r.renewal_amount_cents) + (r.order_code ? " — account " + r.order_code : "");
           }).join("\n");
           const linesHtml = g.rows.map(function (r) {
             const n = r.tv_count || 1;
-            return "<li>" + n + " TV" + (n > 1 ? "s" : "") + " (" + escapeHtml(r.plan) + ") — " + escapeHtml(fmtCents(r.renewal_amount_cents)) + "</li>";
+            return "<li>" + n + " TV" + (n > 1 ? "s" : "") + " (" + escapeHtml(r.plan) + ") — " + escapeHtml(fmtCents(r.renewal_amount_cents)) + (r.order_code ? " — account " + escapeHtml(r.order_code) : "") + "</li>";
           }).join("");
           text =
             "Hi " + first + ",\n\n" +
             "Your M.R. TV plans renew on " + fmtLongDate(g.endIso) + " — " + dl + " days from now.\n\n" +
             lines + "\n\n" +
             "Total due: " + total + "\n" +
-            "Pay here: " + MRTV_CASHAPP + "\n\n" +
+            "Pay here: " + cashAppUrl(totalC) + "\n" +
+            noteRuleText +
+            altPayText + "\n" +
             "Just reply to this email once you've paid and I'll get you extended.\n\n" +
             "Thanks,\nRyan — M.R. TV";
           html =
@@ -990,7 +1022,9 @@ function mountHome(app, authRequired) {
             "<p>Your M.R. TV plans renew on " + escapeHtml(fmtLongDate(g.endIso)) + " — " + dl + " days from now.</p>" +
             "<ul>" + linesHtml + "</ul>" +
             "<p><strong>Total due: " + escapeHtml(total) + "</strong></p>" +
-            payButtonHtml() +
+            payButtonHtml(totalC) +
+            noteRuleHtml +
+            altPayHtml +
             "<p>Just reply to this email once you've paid and I'll get you extended.</p>" +
             "<p>Thanks,<br>Ryan — M.R. TV</p>";
         }
@@ -1068,7 +1102,7 @@ function mountHome(app, authRequired) {
           "<p>It's been a few weeks since your M.R. TV " + planWord + " ended, and I'd love to have you back.</p>" +
           "<p>Here's a comeback offer, just for you: <strong>" + escapeHtml(offer.headline) + "</strong>.<br>" + escapeHtml(offer.detail) + "</p>" +
           "<p>This offer expires " + escapeHtml(fmtLongDate(expiryIso)) + " — after that it's gone.</p>" +
-          payButtonHtml() +
+          payButtonHtml(offer.payCents) +
           "<p>Just reply to this email once you've paid and I'll get you set back up.</p>" +
           "<p>Thanks,<br>Ryan — M.R. TV</p>";
         try {
