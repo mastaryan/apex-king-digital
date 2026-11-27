@@ -306,7 +306,7 @@ try { require('./db/hkl-ranking-bot').mountHklRankingBot(app); } catch (e) { con
 // GLP Lottery bot — Lucypeptide lottery + Telegram order alerts (existing service)
 try { require('./db/lucy-bot').mountLucyBot(app); } catch (e) { console.error('lucy bot mount', e.message); }
 
-// QWB Lottery bot — QWB lottery + Telegram order alerts (existing service)
+// QWB Orders bot — QWB Telegram order alerts (existing service)
 try { require('./db/qwb-bot').mountQWBBot(app); } catch (e) { console.error('qwb bot mount', e.message); }
 
 // Mister TV IPTV Support discovery bot webhook (existing service, no new worker)
