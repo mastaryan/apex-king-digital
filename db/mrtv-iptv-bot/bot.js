@@ -16,11 +16,11 @@ const LINKS = {
 };
 
 const COMMANDS = [
-  { command: 'start', description: 'Open Mister TV links' },
+  { command: 'start', description: 'Open MR TV links' },
   { command: 'setup', description: "Setup guide and How-To's" },
   { command: 'support', description: 'Support room link' },
   { command: 'order', description: 'Order or renew' },
-  { command: 'website', description: 'Mister TV website' },
+  { command: 'website', description: 'MR TV website' },
   { command: 'commands', description: 'Show command list' },
 ];
 
@@ -29,58 +29,58 @@ function keyboard(rows) {
 }
 
 const MAIN_KEYBOARD = keyboard([
-  [{ text: 'Join Mister TV', url: LINKS.group }],
+  [{ text: '📺 Join MR TV', url: LINKS.group }],
   [
-    { text: 'Setup Guide', url: LINKS.setup },
-    { text: 'Order / Renew', url: LINKS.order },
+    { text: '🛠️ Setup Guide', url: LINKS.setup },
+    { text: '🔥 Order / Renew', url: LINKS.order },
   ],
-  [{ text: 'Website', url: LINKS.website }],
+  [{ text: '🌐 Website', url: LINKS.website }],
 ]);
 
 const SETUP_KEYBOARD = keyboard([
-  [{ text: 'Setup Guide', url: LINKS.setup }],
-  [{ text: "How-To's", url: LINKS.howto }],
-  [{ text: 'Join Mister TV', url: LINKS.group }],
+  [{ text: '🚀 Setup Guide', url: LINKS.setup }],
+  [{ text: "📌 How-To's", url: LINKS.howto }],
+  [{ text: '📺 Join MR TV', url: LINKS.group }],
 ]);
 
 const SUPPORT_KEYBOARD = keyboard([
-  [{ text: 'Join Mister TV', url: LINKS.group }],
-  [{ text: 'Setup Guide', url: LINKS.setup }],
+  [{ text: '💬 Join MR TV', url: LINKS.group }],
+  [{ text: '🛠️ Setup Guide', url: LINKS.setup }],
 ]);
 
 const ORDER_KEYBOARD = keyboard([
-  [{ text: 'Order / Renew', url: LINKS.order }],
-  [{ text: 'Website', url: LINKS.website }],
+  [{ text: '🔥 Order / Renew', url: LINKS.order }],
+  [{ text: '🌐 Website', url: LINKS.website }],
 ]);
 
 const WEBSITE_KEYBOARD = keyboard([
-  [{ text: 'Website', url: LINKS.website }],
-  [{ text: 'Setup Guide', url: LINKS.setup }],
+  [{ text: '🌐 Website', url: LINKS.website }],
+  [{ text: '🚀 Setup Guide', url: LINKS.setup }],
 ]);
 
 const TEXT = {
   start: [
-    'Mister TV IPTV Support 📺',
-    'IPTV player help, setup guides, and Mister TV links.',
-    'Tap a button to get around:',
+    'MR TV IPTV Support 📺',
+    'IPTV player help, setup guides, and MR TV links.',
+    'Tap a button and get rolling:',
   ].join('\n'),
   setup: [
-    'Setup help',
-    "Open the guide, pick your device, then follow the steps. The How-To's pinned post in the Mister TV room has the current Downloader codes.",
+    'Setup help 🚀',
+    "Open the guide, pick your device, then follow the steps. The How-To's pinned post in the MR TV room has the current Downloader codes.",
   ].join('\n'),
   support: [
-    'Support is inside the Mister TV room.',
+    'Support is inside the MR TV room. 💬',
     'Join the room and use the Support topic so the answer stays with your setup.',
   ].join('\n'),
-  order: 'Orders and renewals run through the Mister TV order bot.',
-  website: 'Mister TV website and setup guide:',
+  order: 'Orders and renewals run through the MR TV order bot. 🔥',
+  website: 'MR TV website and setup guide:',
   commands: [
     'Commands:',
-    '/start - Open Mister TV links',
+    '/start - Open MR TV links',
     "/setup - Setup guide and How-To's",
     '/support - Support room link',
     '/order - Order or renew',
-    '/website - Mister TV website',
+    '/website - MR TV website',
     '/commands - Show this list',
   ].join('\n'),
 };
@@ -145,7 +145,7 @@ async function handleMessage(message, botUsername) {
     case 'help':
       return send(chatId, TEXT.commands, MAIN_KEYBOARD, threadId);
     case 'join':
-      return send(chatId, 'Join the Mister TV room here:', SUPPORT_KEYBOARD, threadId);
+      return send(chatId, 'Join the MR TV room here:', SUPPORT_KEYBOARD, threadId);
     case 'start':
     default:
       return send(chatId, TEXT.start, MAIN_KEYBOARD, threadId);
