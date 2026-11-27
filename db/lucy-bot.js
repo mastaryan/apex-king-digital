@@ -18,6 +18,9 @@ const ORDERS_ROUTE = "/api/lucy/orders/webhook";
 const DISCORD_APP_ID = process.env.LUCY_DISCORD_APP_ID || "1575739084217917542";
 
 const PRIZES = { 1: 10, 2: 10, 3: 15, 4: 15, 5: 20 }; // Beijing Mon..Fri
+// Staff exclusion lists (addendum Nov 27): these IDs are filtered out before every pick.
+const STAFF_TG_IDS = ["7213362674", "8921727769", "8782959973", "8871958193"]; // Ryan, Lucy, Lily, Cassie
+const STAFF_DISCORD_IDS = ["329342011188445184", "1247263344927178804", "1526261440569151629", "1265948792050548758"]; // Ryan, Lucy, Lily, Cassie
 const TG_COMMANDS = [
   { command: "start", description: "Start the bot" },
   { command: "link", description: "Link your Lucypeptide account" },
@@ -141,7 +144,8 @@ function csvSet(v) {
 
 function filterTgRoster(roster, adminIds) {
   const excludedNames = csvSet(env("LUCY_TG_EXCLUDED_USERNAMES") || "masta_ryan");
-  return roster.filter((u) => !adminIds.has(String(u.id)) && !excludedNames.has(String(u.username || "").toLowerCase()));
+  const excludedIds = new Set([...STAFF_TG_IDS, ...csvSet(env("LUCY_TG_EXCLUDED_USER_IDS"))]);
+  return roster.filter((u) => !adminIds.has(String(u.id)) && !excludedIds.has(String(u.id)) && !excludedNames.has(String(u.username || "").toLowerCase()));
 }
 
 async function tgEligibleRoster() {
@@ -151,7 +155,7 @@ async function tgEligibleRoster() {
 }
 
 function isDiscordEligible(member, ownerId) {
-  const excludedIds = csvSet(env("LUCY_DISCORD_EXCLUDED_USER_IDS"));
+  const excludedIds = new Set([...STAFF_DISCORD_IDS, ...csvSet(env("LUCY_DISCORD_EXCLUDED_USER_IDS"))]);
   return !member.user.bot
     && String(member.id) !== String(ownerId || "")
     && !excludedIds.has(String(member.id))
