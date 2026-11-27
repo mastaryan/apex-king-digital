@@ -303,6 +303,9 @@ try { require('./db/glp').mountGlp(app, authRequired); } catch (e) { console.err
 // Helix Peptide Research discovery bot webhook (existing service, no new worker)
 try { require('./db/hkl-ranking-bot').mountHklRankingBot(app); } catch (e) { console.error('hkl ranking bot mount', e.message); }
 
+// GLP Lottery bot — Lucypeptide lottery + Telegram order alerts (existing service)
+try { require('./db/lucy-bot').mountLucyBot(app); } catch (e) { console.error('lucy bot mount', e.message); }
+
 // Mister TV IPTV Support discovery bot webhook (existing service, no new worker)
 try {
   const iptvBot = require('./db/mrtv-iptv-bot/webhook');
