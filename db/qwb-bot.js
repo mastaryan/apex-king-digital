@@ -120,10 +120,24 @@ async function tgSend(chatId, text, options = {}) {
   return tg("sendMessage", { chat_id: chatId, text, disable_web_page_preview: true, ...options });
 }
 
+// "View order" button on staff alerts for order events carrying staff_url.
+const ORDER_EVENTS = new Set([
+  "order.placed", "order.proof_uploaded", "order.payment_confirmed",
+  "order.shipped", "order.cancelled", "order.delivery_problem",
+]);
+function staffOptions(ev) {
+  if (!ORDER_EVENTS.has(ev?.event) || !ev?.staff_url) return {};
+  try {
+    const url = new URL(String(ev.staff_url));
+    if (!["http:", "https:"].includes(url.protocol)) return {};
+    return { reply_markup: { inline_keyboard: [[{ text: "View order", url: url.toString() }]] } };
+  } catch { return {}; }
+}
+
 async function tgStaff(ev, text) {
   const chatId = staffChatFor(ev);
   if (!chatId) return;
-  await tgSend(chatId, text).catch((e) => console.error("qwb staff send:", e.message));
+  await tgSend(chatId, text, staffOptions(ev)).catch((e) => console.error("qwb staff send:", e.message));
 }
 
 function staffText(ev) {
@@ -265,5 +279,5 @@ function mountQWBBot(app) {
 
 module.exports = {
   mountQWBBot, timingSafeEqualStr, staffText, customerText, staffChatFor,
-  flagFor, countryFor, customerAlertsOn, siteBase, handleMyChatMember, TG_ROUTE, ORDERS_ROUTE,
+  flagFor, countryFor, staffOptions, customerAlertsOn, siteBase, handleMyChatMember, TG_ROUTE, ORDERS_ROUTE,
 };
