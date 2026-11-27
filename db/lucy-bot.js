@@ -29,6 +29,10 @@ function env(name) { return process.env[name] || ""; }
 function tgToken() { return env("LUCY_TG_BOT_TOKEN"); }
 function staffChatId() { return env("LUCY_TG_STAFF_CHAT_ID"); }
 function groupId() { return env("LUCY_TG_GROUP_ID"); }
+function announceThreadId() {
+  const n = Number(env("LUCY_TG_ANNOUNCE_THREAD_ID") || 332);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
 
 // ---------- storage (Postgres when available, memory fallback) ----------
 let pool = null;
@@ -273,12 +277,14 @@ async function handleChatMember(cm) {
 
 // ---------- lottery ----------
 async function tgShow(winner, prize) {
-  const msg = await tgSend(groupId(), "🎰 Today's GLP Lottery drawing is starting…");
+  const threadId = announceThreadId();
+  const threadOpts = threadId ? { message_thread_id: threadId } : {};
+  const msg = await tgSend(groupId(), "🎰 Today's GLP Lottery drawing is starting…", threadOpts);
   for (const n of [3, 2, 1]) {
     await new Promise((r) => setTimeout(r, 1500));
     await tg("editMessageText", { chat_id: groupId(), message_id: msg.message_id, text: `🎰 Drawing… ${n}` }).catch(() => {});
   }
-  await tg("sendDice", { chat_id: groupId(), emoji: "🎰" }).catch(() => {});
+  await tg("sendDice", { chat_id: groupId(), emoji: "🎰", ...threadOpts }).catch(() => {});
   await new Promise((r) => setTimeout(r, 2500));
   await tg("editMessageText", {
     chat_id: groupId(), message_id: msg.message_id,
