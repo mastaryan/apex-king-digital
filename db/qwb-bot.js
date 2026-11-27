@@ -35,7 +35,7 @@ function countryKey(value) {
   const v = String(value || "").trim().toUpperCase();
   return { AU: "AU", AUS: "AU", AUSTRALIA: "AU", UK: "UK", GB: "UK", GBR: "UK", CN: "CN", CHN: "CN", CHINA: "CN" }[v] || null;
 }
-function flagFor(ev) {
+function countryFor(ev) {
   let key = countryKey(ev?.warehouse);
   if (!key && ev?.order_number) {
     const tokens = String(ev.order_number).toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean);
@@ -44,6 +44,10 @@ function flagFor(ev) {
       if (key) break;
     }
   }
+  return key;
+}
+function flagFor(ev) {
+  const key = countryFor(ev);
   return key ? FLAGS[key] : "";
 }
 
@@ -261,5 +265,5 @@ function mountQWBBot(app) {
 
 module.exports = {
   mountQWBBot, timingSafeEqualStr, staffText, customerText, staffChatFor,
-  flagFor, customerAlertsOn, siteBase, handleMyChatMember, TG_ROUTE, ORDERS_ROUTE,
+  flagFor, countryFor, customerAlertsOn, siteBase, handleMyChatMember, TG_ROUTE, ORDERS_ROUTE,
 };
