@@ -3,9 +3,7 @@
 //
 // Env vars (all set on apex-dashboard):
 //   QWB_TG_BOT_TOKEN, QWB_WEBHOOK_SECRET, QWB_SITE_BASE_URL
-//   QWB_TG_STAFF_CHAT_ID (main staff alerts group)
-//   QWB_TG_STAFF_CHAT_ID_AU / _UK / _CN (optional per-warehouse staff groups;
-//     when set, events with that warehouse go there instead of the main group)
+//   QWB_TG_STAFF_CHAT_ID (the one staff alerts group, all warehouses)
 //   QWB_CUSTOMER_ALERTS ("on" enables customer DMs; default off = staff only)
 "use strict";
 
@@ -25,12 +23,28 @@ function tgToken() { return env("QWB_TG_BOT_TOKEN"); }
 function siteBase() { return env("QWB_SITE_BASE_URL").replace(/\/$/, ""); }
 function customerAlertsOn() { return env("QWB_CUSTOMER_ALERTS").toLowerCase() === "on"; }
 
-// Staff chat for an event: per-warehouse group when configured, else main.
-function staffChatFor(ev) {
-  const wh = String(ev?.warehouse || "").trim().toUpperCase();
-  const key = { AU: "AU", AUSTRALIA: "AU", UK: "UK", GB: "UK", CN: "CN", CHINA: "CN" }[wh];
-  if (key && env(`QWB_TG_STAFF_CHAT_ID_${key}`)) return env(`QWB_TG_STAFF_CHAT_ID_${key}`);
+// One staff group for all warehouses.
+function staffChatFor() {
   return env("QWB_TG_STAFF_CHAT_ID");
+}
+
+// Country flag beside each order: warehouse field first, then the
+// country code in the order number (AU / UK / CN tokens or prefixes).
+const FLAGS = { AU: "🇦🇺", UK: "🇬🇧", CN: "🇨🇳" };
+function countryKey(value) {
+  const v = String(value || "").trim().toUpperCase();
+  return { AU: "AU", AUS: "AU", AUSTRALIA: "AU", UK: "UK", GB: "UK", GBR: "UK", CN: "CN", CHN: "CN", CHINA: "CN" }[v] || null;
+}
+function flagFor(ev) {
+  let key = countryKey(ev?.warehouse);
+  if (!key && ev?.order_number) {
+    const tokens = String(ev.order_number).toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean);
+    for (const t of tokens) {
+      key = countryKey(t) || countryKey(t.replace(/\d.*$/, ""));
+      if (key) break;
+    }
+  }
+  return key ? FLAGS[key] : "";
 }
 
 // ---------- storage (Postgres when available, memory fallback) ----------
@@ -119,9 +133,11 @@ function staffText(ev) {
     "coa.uploaded": "🧪 COA uploaded — waiting for review",
     "inventory.low_stock": "📉 Low stock warning",
   };
+  const flag = flagFor(ev);
   const out = [lines[ev.event] || `Order event: ${ev.event}`];
-  if (ev.order_number) out.push(`Order: ${ev.order_number}`);
-  if (ev.warehouse) out.push(`Warehouse: ${ev.warehouse}`);
+  if (ev.order_number) out.push(`Order: ${flag ? flag + " " : ""}${ev.order_number}`);
+  else if (flag) out.push(`Warehouse: ${flag} ${ev.warehouse}`);
+  else if (ev.warehouse) out.push(`Warehouse: ${ev.warehouse}`);
   if (ev.total != null) out.push(`Total: $${ev.total} ${ev.currency || "USD"}`);
   if (ev.tracking_number) out.push(`Tracking: ${ev.tracking_number}`);
   if (ev.product) out.push(`Product: ${ev.product}`);
@@ -189,7 +205,7 @@ async function handleMyChatMember(cm) {
   const status = cm.new_chat_member?.status;
   if (!["member", "administrator", "creator"].includes(status)) return;
   await tgSend(chat.id,
-    `👋 QWB Orders bot is in.\nThis group's ID: ${chat.id}\n\nMain staff group? Set QWB_TG_STAFF_CHAT_ID=${chat.id} on apex-dashboard.\nWarehouse group? Set QWB_TG_STAFF_CHAT_ID_AU, _UK, or _CN to ${chat.id}.`)
+    `👋 QWB Orders bot is in.\nThis group's ID: ${chat.id}\n\nStaff alerts group? Set QWB_TG_STAFF_CHAT_ID=${chat.id} on apex-dashboard.`)
     .catch((e) => console.error("qwb group ID post:", e.message));
 }
 
@@ -245,5 +261,5 @@ function mountQWBBot(app) {
 
 module.exports = {
   mountQWBBot, timingSafeEqualStr, staffText, customerText, staffChatFor,
-  customerAlertsOn, siteBase, handleMyChatMember, TG_ROUTE, ORDERS_ROUTE,
+  flagFor, customerAlertsOn, siteBase, handleMyChatMember, TG_ROUTE, ORDERS_ROUTE,
 };
