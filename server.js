@@ -303,4 +303,11 @@ try { require('./db/glp').mountGlp(app, authRequired); } catch (e) { console.err
 // Helix Peptide Research discovery bot webhook (existing service, no new worker)
 try { require('./db/hkl-ranking-bot').mountHklRankingBot(app); } catch (e) { console.error('hkl ranking bot mount', e.message); }
 
+// Mister TV IPTV Support discovery bot webhook (existing service, no new worker)
+try {
+  const iptvBot = require('./db/mrtv-iptv-bot/webhook');
+  iptvBot.registerIptvBotWebhook(app);
+  iptvBot.initIptvBot().catch((err) => console.error('iptv bot init:', err.message));
+} catch (e) { console.error('iptv bot mount', e.message); }
+
 app.listen(PORT, () => console.log('apex-dashboard listening on ' + PORT));
