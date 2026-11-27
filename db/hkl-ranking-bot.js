@@ -19,6 +19,7 @@ const LINKS = {
   calculator: "https://helixkinglabs.com/tools/calculator",
   notes: "https://helixkinglabs.substack.com",
   website: "https://helixkinglabs.com",
+  vendor: "https://helixkinglabs.com/wholesale",
 };
 
 const FOOTER = "Research use only — not for human consumption.";
@@ -30,6 +31,7 @@ const COMMANDS = [
   { command: "calculator", description: "Open the calculator" },
   { command: "notes", description: "Read research notes" },
   { command: "website", description: "Open helixkinglabs.com" },
+  { command: "vendor", description: "Open Vendor Direct" },
   { command: "help", description: "Show commands" },
 ];
 
@@ -58,15 +60,16 @@ async function tg(method, payload = {}) {
 function mainKeyboard() {
   return {
     inline_keyboard: [
-      [{ text: "Join HKL Research", url: LINKS.group }],
+      [{ text: "🧬 Join HKL Research", url: LINKS.group }],
       [
-        { text: "COA Checker", url: LINKS.coa },
-        { text: "Calculator", url: LINKS.calculator },
+        { text: "✅ COA Checker", url: LINKS.coa },
+        { text: "🧮 Calculator", url: LINKS.calculator },
       ],
       [
-        { text: "Research Notes", url: LINKS.notes },
-        { text: "Website", url: LINKS.website },
+        { text: "📚 Research Notes", url: LINKS.notes },
+        { text: "🌐 Website", url: LINKS.website },
       ],
+      [{ text: "🏭 Vendor Direct", url: LINKS.vendor }],
     ],
   };
 }
@@ -114,6 +117,7 @@ async function sendHelp(message) {
       "/calculator — open the calculator",
       "/notes — read research notes",
       "/website — open helixkinglabs.com",
+      "/vendor — open Vendor Direct",
       "",
       FOOTER,
     ].join("\n"),
@@ -138,31 +142,37 @@ async function handleMessage(message) {
       return;
     case "/join":
       await sendMessage(message.chat.id, `Join HKL Research:\n${LINKS.group}\n\n${FOOTER}`, {
-        reply_markup: singleButton("Join HKL Research", LINKS.group),
+        reply_markup: singleButton("🧬 Join HKL Research", LINKS.group),
         ...options,
       });
       return;
     case "/coa":
       await sendMessage(message.chat.id, `COA Checker:\n${LINKS.coa}\n\n${FOOTER}`, {
-        reply_markup: singleButton("COA Checker", LINKS.coa),
+        reply_markup: singleButton("✅ COA Checker", LINKS.coa),
         ...options,
       });
       return;
     case "/calculator":
       await sendMessage(message.chat.id, `Calculator:\n${LINKS.calculator}\n\n${FOOTER}`, {
-        reply_markup: singleButton("Calculator", LINKS.calculator),
+        reply_markup: singleButton("🧮 Calculator", LINKS.calculator),
         ...options,
       });
       return;
     case "/notes":
       await sendMessage(message.chat.id, `Research Notes:\n${LINKS.notes}\n\n${FOOTER}`, {
-        reply_markup: singleButton("Research Notes", LINKS.notes),
+        reply_markup: singleButton("📚 Research Notes", LINKS.notes),
         ...options,
       });
       return;
     case "/website":
       await sendMessage(message.chat.id, `Helix King Labs:\n${LINKS.website}\n\n${FOOTER}`, {
-        reply_markup: singleButton("Website", LINKS.website),
+        reply_markup: singleButton("🌐 Website", LINKS.website),
+        ...options,
+      });
+      return;
+    case "/vendor":
+      await sendMessage(message.chat.id, `Vendor Direct:\n${LINKS.vendor}\n\n${FOOTER}`, {
+        reply_markup: singleButton("🏭 Vendor Direct", LINKS.vendor),
         ...options,
       });
       return;
