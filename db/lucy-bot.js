@@ -19,8 +19,8 @@ const DISCORD_APP_ID = process.env.LUCY_DISCORD_APP_ID || "1575739084217917542";
 
 const PRIZES = { 1: 10, 2: 10, 3: 15, 4: 15, 5: 20 }; // Beijing Mon..Fri
 // Staff exclusion lists (addendum Nov 27): these IDs are filtered out before every pick.
-const STAFF_TG_IDS = ["7213362674", "8921727769", "8782959973", "8871958193"]; // Ryan, Lucy, Lily, Cassie
-const STAFF_DISCORD_IDS = ["329342011188445184", "1247263344927178804", "1526261440569151629", "1265948792050548758"]; // Ryan, Lucy, Lily, Cassie
+const STAFF_TG_IDS = ["7213362674", "8921727769", "8782959973", "8871958193", "7494640158", "7712164503"]; // Ryan, Lucy, Lily, Cassie, Porgy, Longbeach283
+const STAFF_DISCORD_IDS = ["329342011188445184", "1247263344927178804", "1526261440569151629", "1265948792050548758", "343494949506908160", "1112137554884571218"]; // Ryan, Lucy, Lily, Cassie, Porgy, Longbeach283
 const TG_COMMANDS = [
   { command: "start", description: "Start the bot" },
   { command: "link", description: "Link your Lucypeptide account" },
