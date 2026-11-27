@@ -135,6 +135,34 @@ function pickWinner(list) {
   return list[crypto.randomInt(list.length)];
 }
 
+function csvSet(v) {
+  return new Set(String(v || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean));
+}
+
+function filterTgRoster(roster, adminIds) {
+  const excludedNames = csvSet(env("LUCY_TG_EXCLUDED_USERNAMES") || "masta_ryan");
+  return roster.filter((u) => !adminIds.has(String(u.id)) && !excludedNames.has(String(u.username || "").toLowerCase()));
+}
+
+async function tgEligibleRoster() {
+  const admins = await tg("getChatAdministrators", { chat_id: groupId() });
+  const adminIds = new Set(admins.map((a) => String(a.user?.id)).filter(Boolean));
+  return filterTgRoster(await rosterList(), adminIds);
+}
+
+function isDiscordEligible(member, ownerId) {
+  const excludedIds = csvSet(env("LUCY_DISCORD_EXCLUDED_USER_IDS"));
+  return !member.user.bot
+    && String(member.id) !== String(ownerId || "")
+    && !excludedIds.has(String(member.id))
+    && !member.permissions?.has?.("Administrator");
+}
+
+const SLOT_SYMBOLS = ["🍒", "🍋", "🍇", "🔔", "💎", "7️⃣"];
+function slotFrame() {
+  return [0, 1, 2].map(() => SLOT_SYMBOLS[crypto.randomInt(SLOT_SYMBOLS.length)]).join(" ");
+}
+
 function displayName(u) {
   if (!u) return "member";
   if (u.username) return `@${u.username}`;
@@ -303,9 +331,15 @@ async function dmLilyTelegram(text) {
 }
 
 async function runTelegramDraw(prize, dryRun = false) {
-  const roster = await rosterList();
+  let roster;
+  try {
+    roster = await tgEligibleRoster();
+  } catch (e) {
+    await tgStaff(`🎰 Telegram draw skipped: could not verify admins (${e.message}).`);
+    return null;
+  }
   const winner = pickWinner(roster);
-  if (!winner) { await tgStaff("🎰 Telegram draw skipped: roster is empty so far."); return null; }
+  if (!winner) { await tgStaff("🎰 Telegram draw skipped: no eligible members so far."); return null; }
   if (dryRun) return winner;
   await tgShow(winner, prize);
   const code = await mintCode(prize, "telegram", winner.id);
@@ -319,7 +353,7 @@ let discordClient = null;
 async function discordRoster() {
   const guild = await discordClient.guilds.fetch(env("LUCY_DISCORD_GUILD_ID"));
   const members = await guild.members.fetch();
-  return [...members.values()].filter((m) => !m.user.bot)
+  return [...members.values()].filter((m) => isDiscordEligible(m, guild.ownerId))
     .map((m) => ({ id: m.id, username: m.user.username, displayName: m.displayName, tag: m.user.tag }));
 }
 
@@ -330,10 +364,12 @@ async function runDiscordDraw(prize, dryRun = false) {
   if (dryRun) return winner;
   const channel = await discordClient.channels.fetch(env("LUCY_DISCORD_ANNOUNCE_CHANNEL_ID"));
   const msg = await channel.send("🎰 Today's GLP Lottery drawing is starting…");
-  for (const n of [3, 2, 1]) {
-    await new Promise((r) => setTimeout(r, 1500));
-    await msg.edit(`🎰 Drawing… ${n}`).catch(() => {});
+  for (let i = 0; i < 8; i++) {
+    await new Promise((r) => setTimeout(r, 650));
+    await msg.edit(`🎰 ${slotFrame()}`).catch(() => {});
   }
+  await msg.edit("🎰 7️⃣ 7️⃣ 7️⃣").catch(() => {});
+  await new Promise((r) => setTimeout(r, 800));
   await msg.edit(`🎉 Congrats <@${winner.id}>, Lily will be reaching out to you\nPrize: ${prize}% OFF your next order`);
   const code = await mintCode(prize, "discord", winner.id);
   const text = lilyText("Discord", `@${winner.username}`, prize, code);
@@ -449,5 +485,5 @@ function mountLucyBot(app) {
 
 module.exports = {
   mountLucyBot, beijingParts, prizeForWeekday, pickWinner, timingSafeEqualStr,
-  staffText, customerText, nextDrawText, TG_ROUTE, ORDERS_ROUTE,
+  staffText, customerText, nextDrawText, filterTgRoster, isDiscordEligible, slotFrame, TG_ROUTE, ORDERS_ROUTE,
 };
