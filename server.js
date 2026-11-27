@@ -300,4 +300,7 @@ try { require('./db/qwb').mountQwb(app, authRequired); } catch (e) { console.err
 // GLP operations (read-only proxy to the GLP site's /api/apex API)
 try { require('./db/glp').mountGlp(app, authRequired); } catch (e) { console.error('glp mount', e.message); }
 
+// Helix Peptide Research discovery bot webhook (existing service, no new worker)
+try { require('./db/hkl-ranking-bot').mountHklRankingBot(app); } catch (e) { console.error('hkl ranking bot mount', e.message); }
+
 app.listen(PORT, () => console.log('apex-dashboard listening on ' + PORT));
