@@ -987,7 +987,7 @@ function mountHome(app, authRequired) {
             noteRuleText +
             altPayText + "\n" +
             "Just reply to this email once you've paid and I'll get you extended.\n\n" +
-            "Thanks,\nRyan — M.R. TV";
+            "Thanks,\nM.R. TV";
           html =
             "<p>Hi " + escapeHtml(first) + ",</p>" +
             "<p>Your M.R. TV plan (" + escapeHtml(r.plan) + ") renews on " + escapeHtml(fmtLongDate(g.endIso)) + " — " + dl + " days from now.</p>" +
@@ -997,7 +997,7 @@ function mountHome(app, authRequired) {
             noteRuleHtml +
             altPayHtml +
             "<p>Just reply to this email once you've paid and I'll get you extended.</p>" +
-            "<p>Thanks,<br>Ryan — M.R. TV</p>";
+            "<p>Thanks,<br>M.R. TV</p>";
         } else {
           const lines = g.rows.map(function (r) {
             const n = r.tv_count || 1;
@@ -1016,7 +1016,7 @@ function mountHome(app, authRequired) {
             noteRuleText +
             altPayText + "\n" +
             "Just reply to this email once you've paid and I'll get you extended.\n\n" +
-            "Thanks,\nRyan — M.R. TV";
+            "Thanks,\nM.R. TV";
           html =
             "<p>Hi " + escapeHtml(first) + ",</p>" +
             "<p>Your M.R. TV plans renew on " + escapeHtml(fmtLongDate(g.endIso)) + " — " + dl + " days from now.</p>" +
@@ -1026,7 +1026,7 @@ function mountHome(app, authRequired) {
             noteRuleHtml +
             altPayHtml +
             "<p>Just reply to this email once you've paid and I'll get you extended.</p>" +
-            "<p>Thanks,<br>Ryan — M.R. TV</p>";
+            "<p>Thanks,<br>M.R. TV</p>";
         }
         try {
           const info = await mailer.sendMail({
@@ -1111,7 +1111,7 @@ function mountHome(app, authRequired) {
           "This offer expires " + fmtLongDate(expiryIso) + " — after that it's gone.\n\n" +
           offer.payLine + "\n\n" +
           "Just reply to this email once you've paid and I'll get you set back up.\n\n" +
-          "Thanks,\nRyan — M.R. TV";
+          "Thanks,\nM.R. TV";
         const html =
           "<p>Hi " + escapeHtml(first) + ",</p>" +
           "<p>It's been a few weeks since your M.R. TV " + planWord + " ended, and I'd love to have you back.</p>" +
@@ -1119,7 +1119,7 @@ function mountHome(app, authRequired) {
           "<p>This offer expires " + escapeHtml(fmtLongDate(expiryIso)) + " — after that it's gone.</p>" +
           payButtonHtml(offer.payCents) +
           "<p>Just reply to this email once you've paid and I'll get you set back up.</p>" +
-          "<p>Thanks,<br>Ryan — M.R. TV</p>";
+          "<p>Thanks,<br>M.R. TV</p>";
         try {
           const info = await mailer.sendMail({
             from: "M.R. TV <tv@watchmrtv.com>",
