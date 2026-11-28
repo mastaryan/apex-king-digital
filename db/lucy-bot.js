@@ -311,6 +311,13 @@ async function handleTgMessage(message) {
     return;
   }
   if (command === "/drawtest" && inStaff) { await drawTest(reply); return; }
+  if (command === "/repostproof" && inStaff) {
+    const [, order, total, url] = parts;
+    const ev = { event: "order.proof_uploaded", order_number: order, total, staff_url: url };
+    if (!order || !total || !staffOptions(ev).reply_markup) { await reply("Use: /repostproof ORDER TOTAL STAFF_URL"); return; }
+    await tgStaff(staffText(ev), staffOptions(ev));
+    return;
+  }
 }
 
 async function handleChatMember(cm) {
