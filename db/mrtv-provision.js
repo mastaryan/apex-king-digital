@@ -100,6 +100,35 @@ async function sendReferrerDm(chatId, text) {
   return { ok: false };
 }
 
+// Customer DM (Ryan 2026-11-28): "you're ready" on provision + renewal
+// reminders for customers who ordered through the mini app. Same
+// dual-token path as sendReferrerDm (mini-app bot first, renewals bot as
+// fallback), plus optional sendMessage extras (buttons). Reaches only
+// customers whose row carries telegram_chat_id. Never throws; a failed
+// DM must never break provisioning or renewals.
+async function sendCustomerTgDm(chatId, text, extra) {
+  const tokens = [];
+  const tgTok = process.env.MRTV_TG_BOT_TOKEN || "";
+  const mainTok = process.env.TELEGRAM_BOT_TOKEN || "";
+  if (tgTok) tokens.push(tgTok);
+  if (mainTok && mainTok !== tgTok) tokens.push(mainTok);
+  if (!tokens.length || !chatId) return { ok: false, skipped: true, reason: "not configured" };
+  let lastErr = "";
+  for (const token of tokens) {
+    try {
+      const r = await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(Object.assign({ chat_id: chatId, text: String(text || "").slice(0, 4000) }, extra || {})),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok && j.ok !== false) return { ok: true };
+      lastErr = String((j && j.description) || ("HTTP " + r.status)).slice(0, 160);
+    } catch (e) { lastErr = String(e.message || e).slice(0, 160); }
+  }
+  return { ok: false, error: lastErr };
+}
+
 // Panel GET. Throws NO_KEY when the env var is missing so callers can
 // answer "not configured" instead of "panel down".
 async function panelCall(params) {
@@ -860,6 +889,30 @@ function mountMrtvProvision(app, authRequired) {
     } catch (e) { res.json({ ok: false, error: String(e.message || e).slice(0, 160) }); }
   });
 
+  // ADMIN: create The Lounge topic in the Mister TV group (Ryan
+  // 2026-11-28: "You create it"). The bot must be a group admin with
+  // topic rights. Stores the new topic id as the Lounge (same store the
+  // webhook capture uses) so the bot starts watching it immediately.
+  // Body: { name? } — defaults to "🍿 The Lounge".
+  app.post("/api/mrtv/telegram/create-lounge", authRequired, async (req, res) => {
+    try {
+      const name = cleanStr((req.body || {}).name, 60) || "🍿 The Lounge";
+      const j = await mrtvTg("createForumTopic", { chat_id: MRTV_GROUP_CHAT_ID, name: name });
+      if (!j || !j.ok || !j.result || !j.result.message_thread_id)
+        return res.status(502).json({ ok: false, error: String((j && j.description) || "createForumTopic failed").slice(0, 200) });
+      const tid = Number(j.result.message_thread_id);
+      _loungeThreadId = tid;
+      if (await mrtvBotStateReady()) {
+        try {
+          await getPool().query(
+            "INSERT INTO mrtv_bot_state (key, value) VALUES ('lounge_thread_id', $1) ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = now()",
+            [String(tid)]);
+        } catch (e) { /* the in-process cache still holds it */ }
+      }
+      res.json({ ok: true, thread_id: tid, name: name });
+    } catch (e) { res.status(502).json({ ok: false, error: String(e.message || e).slice(0, 200) }); }
+  });
+
   // ADMIN: replace the inline keyboard on a bot-sent message (editMessageReplyMarkup).
   // Body: { chat_id, message_id, buttons: [[{text, url}, ...], ...] }
   app.post("/api/mrtv/telegram/edit-buttons", authRequired, async (req, res) => {
@@ -901,6 +954,109 @@ function mountMrtvProvision(app, authRequired) {
     [{ text: "💬 Support Chat", url: "https://t.me/watchmrtv/1" }],
     [{ text: "🌐 watchmrtv.com", url: "https://watchmrtv.com" }],
   ];
+  // --- The Lounge (Ryan 2026-11-28) -------------------------------------------
+  // A general-chat topic in Mister TV so Support stays support. The bot
+  // captures the topic id when a topic whose name contains "Lounge" is
+  // created or renamed (forum_topic_created / forum_topic_edited service
+  // messages), stored in mrtv_bot_state. In that topic only, the bot:
+  // 1) answers common questions with pointers (install, price, renewals,
+  // trouble), throttled per user + rule; 2) ribs anyone who pastes a
+  // suggestion list of 4+ items. Everywhere else in the group the bot
+  // stays silent, exactly as before. All state access fails open: no
+  // Postgres, no Lounge replies, never an error in the webhook.
+  const MRTV_BOT_STATE_SQL =
+    "CREATE TABLE IF NOT EXISTS mrtv_bot_state (" +
+    "key TEXT PRIMARY KEY, value TEXT, updated_at TIMESTAMPTZ NOT NULL DEFAULT now());";
+  let _mrtvBotStateReady = false;
+  let _loungeThreadId = null;
+  const _loungeCooldowns = new Map();
+
+  async function mrtvBotStateReady() {
+    if (_mrtvBotStateReady) return true;
+    try { await getPool().query(MRTV_BOT_STATE_SQL); _mrtvBotStateReady = true; }
+    catch (e) { /* fail open */ }
+    return _mrtvBotStateReady;
+  }
+  async function mrtvLoungeThreadId() {
+    if (_loungeThreadId) return _loungeThreadId;
+    if (!(await mrtvBotStateReady())) return null;
+    try {
+      const { rows } = await getPool().query("SELECT value FROM mrtv_bot_state WHERE key = 'lounge_thread_id'");
+      if (rows.length && Number(rows[0].value)) _loungeThreadId = Number(rows[0].value);
+    } catch (e) { /* fail open */ }
+    return _loungeThreadId;
+  }
+  async function mrtvCaptureLoungeTopic(msg) {
+    const info = msg.forum_topic_created || msg.forum_topic_edited || null;
+    if (!info || !msg.message_thread_id) return;
+    if (!/lounge/i.test(String(info.name || ""))) return;
+    _loungeThreadId = Number(msg.message_thread_id);
+    if (await mrtvBotStateReady()) {
+      try {
+        await getPool().query(
+          "INSERT INTO mrtv_bot_state (key, value) VALUES ('lounge_thread_id', $1) ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = now()",
+          [String(_loungeThreadId)]);
+      } catch (e) { /* the in-process cache still holds it */ }
+    }
+  }
+  function mrtvLoungeCooling(key, ms) {
+    const now = Date.now();
+    const last = _loungeCooldowns.get(key) || 0;
+    if (now - last < ms) return true;
+    _loungeCooldowns.set(key, now);
+    if (_loungeCooldowns.size > 500) _loungeCooldowns.clear();
+    return false;
+  }
+  const MRTV_LOUNGE_FAQ = [
+    { key: "install", re: /(install|set ?up|download|firestick|fire tv|onn stick|downloader|how do i get|app code)/i,
+      text: "📺 Setup lives here: https://watchmrtv.com/app/ — Downloader code 7537688 for the MR TV app (MR TV Mobile: 6317874). Step by step, takes about 5 minutes." },
+    { key: "renew", re: /(renew|expired|expires|extend|extension|ran out)/i,
+      text: "Renewals: you'll get an email before your date (5 days out on monthly plans) with a pay link — pay it, reply to the email, and you're extended. You can also see your days left any time in the 📺 My TV app." },
+    { key: "price", re: /(price|cost|how much|per month|plans?)/i,
+      text: "Plans: monthly $10 for 1 TV, $15 for 2 — yearly $80 for 1 TV, $100 for 2 (best deal), +$25 per extra TV. Full details: https://watchmrtv.com/" },
+    { key: "trouble", re: /(buffer|freez|frozen|not working|won'?t load|not loading|channels? (are )?down|black screen|keeps stopping)/i,
+      text: "Quick checks first: restart the stick/box, then check your internet speed. Still stuck? Post in 💬 Support with your device and what you were watching — that's the fastest route to a fix." },
+  ];
+  const MRTV_LOUNGE_JOKES = [
+    "😄 Easy there — what do you think this is, DirecTV? Suggestions noted, all of them.",
+    "📋 That is quite the list. What do you think this is, Spectrum? 😄 Noted!",
+    "😅 One more suggestion and we legally become a cable company. List received!",
+    "👀 The suggestion box just filed for overtime. 😄 Got 'em — thanks!",
+  ];
+  function mrtvSuggestionCount(text) {
+    let n = 0;
+    for (const ln of String(text).split(/\n+/)) if (/^\s*([-*•·]|\d{1,2}[.)])\s+\S/.test(ln)) n++;
+    n += (String(text).toLowerCase().match(/you should|should add|please add|can you add|could you add|add more|need to add|suggestion/g) || []).length;
+    return n;
+  }
+  async function mrtvHandleLoungeMessage(msg) {
+    try {
+      const from = (msg && msg.from) || {};
+      if (!from.id || from.is_bot || msg.sender_chat) return false;
+      const threadId = await mrtvLoungeThreadId();
+      if (!threadId || Number(msg.message_thread_id) !== threadId) return false;
+      const text = String(msg.text || "");
+      if (!text || text.startsWith("/")) return false;
+      const reply = (t) => mrtvTg("sendMessage", { chat_id: MRTV_GROUP_CHAT_ID, message_thread_id: threadId, reply_to_message_id: msg.message_id, text: t });
+      // Suggestion-list ribbing: 4+ suggestions in one message.
+      if (mrtvSuggestionCount(text) >= 4 && !mrtvLoungeCooling("joke:" + from.id, 60 * 60 * 1000)) {
+        const r = await reply(MRTV_LOUNGE_JOKES[Math.floor(Math.random() * MRTV_LOUNGE_JOKES.length)]);
+        return !!(r && r.ok);
+      }
+      // FAQ pointers: only for question-shaped messages.
+      const questiony = text.indexOf("?") >= 0 || /^(how|what|can|is|do|does|where|when|why)\b/i.test(text.trim());
+      if (!questiony) return false;
+      for (const rule of MRTV_LOUNGE_FAQ) {
+        if (rule.re.test(text)) {
+          if (mrtvLoungeCooling("faq:" + rule.key + ":" + from.id, 30 * 60 * 1000)) return false;
+          const r = await reply(rule.text);
+          return !!(r && r.ok);
+        }
+      }
+      return false;
+    } catch (e) { return false; }
+  }
+
   const _tgSeenUpdateIds = new Set();
   // POST /api/mrtv/telegram/webhook - called by Telegram, no admin auth.
   // Mister TV group moderation lives here: join-time ban check + username
@@ -923,6 +1079,13 @@ function mountMrtvProvision(app, authRequired) {
       }
       const msg = update.message || update.edited_message || {};
       if (Number(msg.chat && msg.chat.id) !== MRTV_GROUP_CHAT_ID) return res.json({ ok: true });
+      // 0) Lounge topic capture: a topic created or renamed to a name
+      // containing "Lounge" becomes the general-chat room (see above).
+      // Service messages carry no text, so nothing else applies to them.
+      if (msg.forum_topic_created || msg.forum_topic_edited) {
+        await mrtvCaptureLoungeTopic(msg);
+        return res.json({ ok: true });
+      }
       const token = process.env.TELEGRAM_BOT_TOKEN || "";
       // 1) New members: ban check, then username check, then the welcome.
       // The welcome goes out once per update, and only if at least one
@@ -959,8 +1122,15 @@ function mountMrtvProvision(app, authRequired) {
       // 3) No links at all in the group, deleted silently. Join/leave
       // service messages have no text/caption, so they pass through here
       // untouched.
+      let linkDeleted = false;
       if (msg.text || msg.caption) {
-        await mrtvHandleLinkMessage(msg);
+        linkDeleted = await mrtvHandleLinkMessage(msg);
+      }
+      // 4) The Lounge: FAQ pointers + suggestion-list ribbing, in the
+      // captured Lounge topic only, and never on a message the link
+      // rule just deleted.
+      if (!linkDeleted && msg.text) {
+        await mrtvHandleLoungeMessage(msg);
       }
       res.json({ ok: true });
     } catch (e) { res.json({ ok: true }); }
@@ -1363,10 +1533,25 @@ function mountMrtvProvision(app, authRequired) {
       await getPool().query(
         "UPDATE mrtv_customers SET lines = $1::jsonb, provisioned_at = now(), needs_manual = $2 WHERE id = $3",
         [JSON.stringify(lines), needsManual, c.id]);
+      // Customer Telegram DM (Ryan 2026-11-28): customers who ordered
+      // through Telegram hear "you're ready" from the bot too, not just
+      // by email. No logins in the DM — those stay in the email.
+      // Best-effort: the result never changes the provision outcome.
+      let tgDmSent = false;
+      if (c.telegram_chat_id) {
+        const dm = await sendCustomerTgDm(c.telegram_chat_id,
+          "✅ Your M.R. TV is ready, " + firstName + "!\n\n" +
+          "Your logins were sent to your email (" + (c.email || "") + ").\n" +
+          "Plan: " + planDesc + " — good through " + fmtLongDate(endIso) + ".\n\n" +
+          "Setup guide: https://watchmrtv.com/app/",
+          { reply_markup: { inline_keyboard: [[{ text: "📺 Open My TV", web_app: { url: "https://watchmrtv.com/tg-app/" } }]] } });
+        tgDmSent = !!dm.ok;
+        if (!dm.ok && !dm.skipped) console.error("[mrtv] provision DM failed:", dm.error || "unknown");
+      }
       res.json({
         ok: true, tvs: tvs,
         lines: lines.map((l) => ({ tv: l.tv, username: l.username, password: l.password })),
-        emailSent: emailSent, ledgerPosted: ledgerPosted,
+        emailSent: emailSent, tgDmSent: tgDmSent, ledgerPosted: ledgerPosted,
         needsManual: needsManual || null, orderCode: orderCode,
       });
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
@@ -1752,4 +1937,4 @@ function mountMrtvProvision(app, authRequired) {
   });
 }
 
-module.exports = { mountMrtvProvision, fillLoginEmail, packFor, LOGIN_TEMPLATE, logEmail, sendTelegramPing, getPanelCredits, applyReferralMonths, mrtvHasLink };
+module.exports = { mountMrtvProvision, fillLoginEmail, packFor, LOGIN_TEMPLATE, logEmail, sendTelegramPing, sendCustomerTgDm, getPanelCredits, applyReferralMonths, mrtvHasLink };
