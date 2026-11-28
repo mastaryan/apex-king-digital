@@ -74,30 +74,25 @@ async function sendTelegramPing(text) {
   } catch (e) { return { ok: false, error: String(e.message || e).slice(0, 160) }; }
 }
 
-// Referrer DM (Ryan 2026-11-23, option B): a bot can only DM users who
-// have started it. Referrers met us through the ORDER bot (@WatchMRTV_bot,
-// the mini app), so the DM goes out on MRTV_TG_BOT_TOKEN when set,
-// falling back to TELEGRAM_BOT_TOKEN (renewals bot — only reaches users
-// who started that bot). Never throws; a failed DM is silent — the
-// free-month email still goes out.
-async function sendReferrerDm(chatId, text) {
-  const tokens = [];
-  const tgTok = process.env.MRTV_TG_BOT_TOKEN || "";
-  const mainTok = process.env.TELEGRAM_BOT_TOKEN || "";
-  if (tgTok) tokens.push(tgTok);
-  if (mainTok && mainTok !== tgTok) tokens.push(mainTok);
-  for (const token of tokens) {
-    try {
-      const r = await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: String(chatId), text: String(text || "").slice(0, 4000) }),
-      });
-      const j = await r.json().catch(() => ({}));
-      if (r.ok && j.ok !== false) return { ok: true };
-    } catch (e) { /* try the next token */ }
-  }
-  return { ok: false };
+// Customer-facing Telegram DM (Ryan 2026-11-28): goes through the mini-app
+// bot (@WatchMRTV_bot, MRTV_TG_BOT_TOKEN) — the only bot customers have
+// started, so the only one that can DM them. Reaches just the customers
+// whose row carries telegram_chat_id (Telegram orders + linked accounts).
+// Never throws; a failed DM must never break provisioning or renewals.
+async function sendCustomerTgDm(chatId, text, extra) {
+  const token = process.env.MRTV_TG_BOT_TOKEN || "";
+  if (!token || !chatId) return { ok: false, skipped: true, reason: "not configured" };
+  try {
+    const r = await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(Object.assign({ chat_id: chatId, text: String(text || "").slice(0, 4000) }, extra || {})),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.ok === false)
+      return { ok: false, error: String((j && j.description) || ("HTTP " + r.status)).slice(0, 160) };
+    return { ok: true };
+  } catch (e) { return { ok: false, error: String(e.message || e).slice(0, 160) }; }
 }
 
 // Panel GET. Throws NO_KEY when the env var is missing so callers can
@@ -179,14 +174,10 @@ const LOGIN_TEMPLATE = [
   "",
   "Server URL (every TV): http://line.watchmrtv.com",
   "",
-  "MR TV APP \u2014 two Downloader codes, pick the one that fits your device:",
-  "MR TV Mobile (older devices, phones and tablets, Android 5.1+) \u2014 Downloader code 6317874.",
-  "MR TV 2.0 (newer devices \u2014 Fire Sticks except Vega OS, Google TV, Android TV, Android 7+) \u2014 Downloader code 7537688. Some Android 6 devices work too \u2014 if it won\u2019t install, use Mobile instead.",
-  "Open the Downloader app, enter your code, install MR TV, then sign in with the logins above.",
-  "On newer Vega-OS Firesticks (4K Select, newer HD/4K) Downloader doesn\u2019t work at all \u2014 install IPTV Smarters Pro from the Amazon Appstore instead.",
+  "MR TV APP \u2014 Downloader code: 6317874",
+  "Open the Downloader app, enter 6317874, install MR TV, then sign in with the logins above.",
   "",
   "YOUR REFERRAL CODE: [MR-####]",
-  "Your link: watchmrtv.com/?ref=[MR-####]",
   "Share it with a friend \u2014 when they sign up with your code, you earn a free month.",
   "",
   "SETUP (about 5 minutes, step-by-step):",
@@ -252,8 +243,8 @@ function buildLoginEmailHtml(o) {
   '<tr><td><table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:#17191c;border:1px solid #2c3036;border-radius:10px;margin:0 0 20px;"><tr><td style="padding:16px 18px;' + font + 'color:#f3f5f8;font-size:15px;"><strong>Your plan:</strong> ' + esc(o.planDesc) + '<br><span style="color:#8a919c;font-size:13px;">Good through: ' + esc(o.expiry) + '</span></td></tr></table></td></tr>' +
   '<tr><td>' + tvCards + '</td></tr>' +
   '<tr><td><table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:#17191c;border:1px solid #2c3036;border-radius:10px;margin:0 0 20px;"><tr><td style="padding:16px 18px;' + font + '"><div style="font-size:12px;color:#8a919c;margin-bottom:4px;">Server URL (every TV)</div><div style="font-family:monospace,monospace;font-size:15px;color:#f3f5f8;word-break:break-all;">' + esc(o.serverUrl) + '</div></td></tr></table></td></tr>' +
-  '<tr><td><table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:#17191c;border:1px solid #2c3036;border-radius:10px;margin:0 0 20px;"><tr><td style="padding:16px 18px;' + font + '"><div style="font-size:12px;color:#8a919c;margin-bottom:4px;">M.R. TV app \u2014 Downloader codes (pick the one that fits your device)</div><div style="font-size:13px;color:#c9ced6;margin-bottom:4px;">MR TV Mobile \u2014 older devices, phones and tablets, Android 5.1+</div><div style="font-family:monospace,monospace;font-size:20px;font-weight:bold;color:#f3f5f8;word-break:break-all;margin-bottom:12px;">6317874</div><div style="font-size:13px;color:#c9ced6;margin-bottom:4px;">MR TV 2.0 \u2014 newer devices, Fire Sticks except Vega OS, Google TV, Android TV, Android 7+ (some Android 6 work too)</div><div style="font-family:monospace,monospace;font-size:20px;font-weight:bold;color:#f3f5f8;word-break:break-all;">7537688</div><div style="font-size:13px;color:#8a919c;margin-top:8px;">Open the Downloader app, enter your code, install MR TV, then sign in with the logins above. On newer Vega-OS Firesticks Downloader doesn\u2019t work at all \u2014 install IPTV Smarters Pro from the Amazon Appstore instead.</div></td></tr></table></td></tr>' +
-  '<tr><td><table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:#17191c;border:1px solid #2c3036;border-radius:10px;margin:0 0 20px;"><tr><td style="padding:16px 18px;' + font + '"><div style="font-size:12px;color:#8a919c;margin-bottom:4px;">Your referral code</div><div style="font-family:monospace,monospace;font-size:20px;font-weight:bold;color:#f3f5f8;word-break:break-all;">' + esc(o.orderCode) + '</div><div style="font-size:13px;color:#8a919c;margin-top:8px;">Your link: <a href="https://watchmrtv.com/?ref=' + esc(o.orderCode) + '" style="color:#c9ced6;">watchmrtv.com/?ref=' + esc(o.orderCode) + '</a></div><div style="font-size:13px;color:#8a919c;margin-top:8px;">Share it with a friend \u2014 when they sign up with your code, you earn a free month.</div></td></tr></table></td></tr>' +
+  '<tr><td><table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:#17191c;border:1px solid #2c3036;border-radius:10px;margin:0 0 20px;"><tr><td style="padding:16px 18px;' + font + '"><div style="font-size:12px;color:#8a919c;margin-bottom:4px;">M.R. TV app \u2014 Downloader code</div><div style="font-family:monospace,monospace;font-size:20px;font-weight:bold;color:#f3f5f8;word-break:break-all;">6317874</div><div style="font-size:13px;color:#8a919c;margin-top:8px;">Open the Downloader app, enter this code, install MR TV, then sign in with the logins above.</div></td></tr></table></td></tr>' +
+  '<tr><td><table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:#17191c;border:1px solid #2c3036;border-radius:10px;margin:0 0 20px;"><tr><td style="padding:16px 18px;' + font + '"><div style="font-size:12px;color:#8a919c;margin-bottom:4px;">Your referral code</div><div style="font-family:monospace,monospace;font-size:20px;font-weight:bold;color:#f3f5f8;word-break:break-all;">' + esc(o.orderCode) + '</div><div style="font-size:13px;color:#8a919c;margin-top:8px;">Share it with a friend \u2014 when they sign up with your code, you earn a free month.</div></td></tr></table></td></tr>' +
   '<tr><td align="center" style="padding:4px 0 20px;"><a href="https://watchmrtv.com/app/" style="display:inline-block;' + font + 'font-size:16px;font-weight:bold;color:#0d0e10;background:#c9ced6;border-radius:8px;padding:14px 32px;text-decoration:none;">Open Setup Guide</a></td></tr>' +
   '<tr><td align="center" style="' + font + 'color:#8a919c;font-size:13px;padding:0 0 20px;">New to the app? <a href="https://watchmrtv.com/app/#watch" style="color:#c9ced6;">How to use it \u2014 favorites, TV guide, recording</a></td></tr>' +
   '<tr><td style="' + font + 'color:#c9ced6;font-size:14px;line-height:1.6;padding:0 0 16px;"><strong style="color:#f3f5f8;">Quick version:</strong> install our free MR TV app on your TV/device \u2014 get it at <a href="https://watchmrtv.com/app/" style="color:#c9ced6;">watchmrtv.com/app</a> (on Samsung, LG, iPhone or newer Vega-OS Firesticks, use IPTV Smarters instead), choose \u201cLogin with Xtream Codes API\u201d (not the M3U playlist option), and type your username, password, and the server URL exactly as shown above. Use one login per TV \u2014 one login plays on one screen at a time.</td></tr>' +
@@ -1062,22 +1053,19 @@ function mountMrtvProvision(app, authRequired) {
       if (devices) noteParts.push("Devices: " + devices);
       const countries = str(pick("custom_countries"));
       if (countries) noteParts.push("Countries: " + countries);
-      // Referral link (Ryan 2026-11-23): the ?ref=MR-#### link pre-fills the
-      // referred_by field on the site; accept a bare "ref" field too, in case
-      // a form variant posts it under that name.
-      const ref = cleanStr(str(pick("referred_by")) || str(pick("ref")), 120);
+      const ref = cleanStr(str(pick("referred_by")), 120);
       // Referral match (Ryan 2026-11-06): the referrer's ORDER CODE is their
       // referral code. If the form value matches a customer's order_code
       // (case-insensitive, spaces stripped), link it. A plain name stays
       // unlinked for Ryan to review — the code is the reliable match.
-      let referrerId = null, referrerName = null, referrerCode = null, referrerChatId = null, refIsCode = false;
+      let referrerId = null, referrerName = null, refIsCode = false;
       if (ref) {
         const code = ref.toUpperCase().replace(/[^A-Z0-9-]/g, "");
         refIsCode = code.indexOf("MR-") === 0;
         if (code) {
           const { rows: m } = await getPool().query(
-            "SELECT id, name, order_code, telegram_chat_id FROM mrtv_customers WHERE UPPER(order_code) = $1 LIMIT 1", [code]);
-          if (m.length) { referrerId = m[0].id; referrerName = m[0].name; referrerCode = m[0].order_code; referrerChatId = m[0].telegram_chat_id; }
+            "SELECT id, name FROM mrtv_customers WHERE UPPER(order_code) = $1 LIMIT 1", [code]);
+          if (m.length) { referrerId = m[0].id; referrerName = m[0].name; }
         }
       }
       if (ref) noteParts.push("Referred by: " + ref +
@@ -1098,11 +1086,6 @@ function mountMrtvProvision(app, authRequired) {
       await sendTelegramPing("🛒 New website order: " + name + " — " + tvs + " TV" + (tvs === 1 ? "" : "s") + ", " + plan +
         (amountC !== null ? ", $" + (amountC / 100).toFixed(2).replace(/\.00$/, "") : "") + " via " + payMethod +
         ", code " + code + (referrerName ? ". Referred by " + referrerName + " (" + ref + ")" : "") + ". Review in the dashboard, then Mark paid & provision.");
-      // Referrer DM (option B): only when the referrer has a linked Telegram,
-      // and never to the buyer themself.
-      if (referrerId && referrerId !== id && referrerChatId) {
-        await sendReferrerDm(referrerChatId, "🎉 Someone signed up with your code " + (referrerCode || ref) + " — 1 free month banked. Thanks for sharing M.R. TV!");
-      }
       res.json({ ok: true, id: id, order_code: code });
     } catch (e) { res.status(500).json({ ok: false, error: String(e.message || e).slice(0, 300) }); }
   });
@@ -1363,10 +1346,25 @@ function mountMrtvProvision(app, authRequired) {
       await getPool().query(
         "UPDATE mrtv_customers SET lines = $1::jsonb, provisioned_at = now(), needs_manual = $2 WHERE id = $3",
         [JSON.stringify(lines), needsManual, c.id]);
+      // Customer Telegram DM (Ryan 2026-11-28): customers who ordered
+      // through Telegram hear "you're ready" from the bot too, not just
+      // by email. No logins in the DM — those stay in the email.
+      // Best-effort: the result never changes the provision outcome.
+      let tgDmSent = false;
+      if (c.telegram_chat_id) {
+        const dm = await sendCustomerTgDm(c.telegram_chat_id,
+          "✅ Your M.R. TV is ready, " + firstName + "!\n\n" +
+          "Your logins were sent to your email (" + (c.email || "") + ").\n" +
+          "Plan: " + planDesc + " — good through " + fmtLongDate(endIso) + ".\n\n" +
+          "Setup guide: https://watchmrtv.com/app/",
+          { reply_markup: { inline_keyboard: [[{ text: "📺 Open My TV", web_app: { url: "https://watchmrtv.com/tg-app/" } }]] } });
+        tgDmSent = !!dm.ok;
+        if (!dm.ok && !dm.skipped) console.error("[mrtv] provision DM failed:", dm.error || "unknown");
+      }
       res.json({
         ok: true, tvs: tvs,
         lines: lines.map((l) => ({ tv: l.tv, username: l.username, password: l.password })),
-        emailSent: emailSent, ledgerPosted: ledgerPosted,
+        emailSent: emailSent, tgDmSent: tgDmSent, ledgerPosted: ledgerPosted,
         needsManual: needsManual || null, orderCode: orderCode,
       });
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 300) }); }
@@ -1752,4 +1750,4 @@ function mountMrtvProvision(app, authRequired) {
   });
 }
 
-module.exports = { mountMrtvProvision, fillLoginEmail, packFor, LOGIN_TEMPLATE, logEmail, sendTelegramPing, getPanelCredits, applyReferralMonths, mrtvHasLink };
+module.exports = { mountMrtvProvision, fillLoginEmail, packFor, LOGIN_TEMPLATE, logEmail, sendTelegramPing, sendCustomerTgDm, getPanelCredits, applyReferralMonths, mrtvHasLink };
