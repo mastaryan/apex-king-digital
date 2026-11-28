@@ -931,7 +931,7 @@ function mountHome(app, authRequired) {
         referral.errors.push("applyReferralMonths: " + String(e.message || e).slice(0, 200));
       }
       const { rows } = await getPool().query(
-        "SELECT id, name, email, plan, end_date, tv_count, renewal_amount_cents, renewal_email_sent_for, renewal_touches_sent, order_code, payment_method " +
+        "SELECT id, name, email, plan, end_date, tv_count, renewal_amount_cents, renewal_email_sent_for, renewal_touches_sent, order_code, payment_method, telegram_chat_id " +
         "FROM mrtv_customers WHERE renewal_amount_cents IS NOT NULL AND end_date IS NOT NULL");
       const mailer = mrtvMailer();
       let sent = 0, skipped = 0;
@@ -1042,6 +1042,21 @@ function mountHome(app, authRequired) {
             await getPool().query("UPDATE mrtv_customers SET renewal_email_sent_for = $1, renewal_touches_sent = $2 WHERE id = $3",
               [g.endIso, st.concat([String(dl)]).join(","), r.id]);
             try { await require("./mrtv-provision").logEmail({ kind: "renewal", customerId: r.id, to: g.email, subject: "Your M.R. TV renews in " + dl + " days", info: info, ok: true }); } catch (le) { console.error("email log", le.message); }
+            // Bot twin of the renewal email (Ryan 2026-11-28): customers
+            // the bot can reach get the same heads-up as a Telegram DM.
+            // Fires inside the email-success branch so the touch dedup
+            // covers both — a failed DM is logged, never retried by a
+            // second email.
+            if (r.telegram_chat_id) {
+              try {
+                await require("./mrtv-provision").sendCustomerTgDm(r.telegram_chat_id,
+                  "⏰ Hi " + String(r.name || "").split(" ")[0] + " — your M.R. TV renews in " + dl + " days (" + fmtLongDate(g.endIso) + ").\n\n" +
+                  (r.tv_count || 1) + " TV" + ((r.tv_count || 1) > 1 ? "s" : "") + ", " + r.plan + " — " + fmtCents(r.renewal_amount_cents) + "\n" +
+                  "Pay here: " + cashAppUrl(r.renewal_amount_cents) + "\n\n" +
+                  "Put ONLY your account number " + (r.order_code || "") + " in the Cash App note — nothing else. Anything extra in the note and the payment will be canceled.\n\n" +
+                  "Questions? Reply here or email tv@watchmrtv.com");
+              } catch (te) { console.error("renewal DM", te.message); }
+            }
           }
           sent += g.rows.length;
         } catch (e) {
