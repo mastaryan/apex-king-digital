@@ -1009,14 +1009,22 @@ function mountMrtvProvision(app, authRequired) {
     return false;
   }
   const MRTV_LOUNGE_FAQ = [
+    { key: "pin", re: /(\bpin\b|parental|kids? mode|lock the|lock it)/i,
+      text: "🔒 The PIN lives in the app's parental controls, under Settings. Set one there and you can also hide whole categories from the home screen." },
     { key: "install", re: /(install|set ?up|download|firestick|fire tv|onn stick|downloader|how do i get|app code)/i,
       text: "📺 Setup lives here: https://watchmrtv.com/app/ — Downloader code 7537688 for the MR TV app (MR TV Mobile: 6317874). Step by step, takes about 5 minutes." },
     { key: "renew", re: /(renew|expired|expires|extend|extension|ran out)/i,
       text: "Renewals: you'll get an email before your date (5 days out on monthly plans) with a pay link — pay it, reply to the email, and you're extended. You can also see your days left any time in the 📺 My TV app." },
-    { key: "price", re: /(price|cost|how much|per month|plans?)/i,
-      text: "Plans: monthly $10 for 1 TV, $15 for 2 — yearly $80 for 1 TV, $100 for 2 (best deal), +$25 per extra TV. Full details: https://watchmrtv.com/" },
     { key: "trouble", re: /(buffer|freez|frozen|not working|won'?t load|not loading|channels? (are )?down|black screen|keeps stopping)/i,
       text: "Quick checks first: restart the stick/box, then check your internet speed. Still stuck? Post in 💬 Support with your device and what you were watching — that's the fastest route to a fix." },
+    { key: "adult", re: /(adult|xxx|18\+)/i,
+      text: "Adult channels only exist on accounts that opted in when they ordered. To hide them, use the parental controls in the app's Settings. Want them off your account completely? Post in 💬 Support and we'll switch your package." },
+    { key: "channels", re: /(channels?|countries|lineup|channel list|what sports|international)/i,
+      text: "📺 Full lineup is in the Channel List: https://t.me/watchmrtv/4 — 20,500+ live channels, 100,000+ movies & shows, all the major sports. Plans come as USA or All Countries." },
+    { key: "devices", re: /(roku|samsung|\blg\b|iphone|ipad|apple tv|what devices|which devices|does it work on)/i,
+      text: "Firestick, Android TV, Google TV and Onn sticks use our free app. Samsung, LG and iPhone use IPTV Smarters. Roku TVs need a Firestick or Onn stick plugged in. Full steps: https://watchmrtv.com/app" },
+    { key: "price", re: /(price|cost|how much|per month|plans?)/i,
+      text: "Plans: monthly $10 for 1 TV, $15 for 2 — yearly $80 for 1 TV, $100 for 2 (best deal), +$25 per extra TV. Full details: https://watchmrtv.com/" }
   ];
   const MRTV_LOUNGE_JOKES = [
     "😄 Easy there — what do you think this is, DirecTV? Suggestions noted, all of them.",
