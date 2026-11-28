@@ -951,7 +951,8 @@ function mountMrtvProvision(app, authRequired) {
     [{ text: "🛒 Order Mister TV", url: "https://t.me/WatchMRTV_bot/MR_TV" }],
     [{ text: "🛠 How-To's", url: "https://t.me/watchmrtv/5" },
      { text: "📺 Channel List", url: "https://t.me/watchmrtv/4" }],
-    [{ text: "💬 Support Chat", url: "https://t.me/watchmrtv/1" }],
+    [{ text: "💬 Support Chat", url: "https://t.me/watchmrtv/1" },
+     { text: "🍿 The Lounge", url: "https://t.me/watchmrtv/237" }],
     [{ text: "🌐 watchmrtv.com", url: "https://watchmrtv.com" }],
   ];
   // --- The Lounge (Ryan 2026-11-28) -------------------------------------------
