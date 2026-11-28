@@ -120,17 +120,21 @@ async function tgSend(chatId, text, options = {}) {
   return tg("sendMessage", { chat_id: chatId, text, disable_web_page_preview: true, ...options });
 }
 
-// "View order" button on staff alerts for order events carrying staff_url.
+// Staff-alert button when the payload carries staff_url:
+// order events get "View order", support events get "View ticket".
 const ORDER_EVENTS = new Set([
   "order.placed", "order.proof_uploaded", "order.payment_confirmed",
   "order.shipped", "order.cancelled", "order.delivery_problem",
 ]);
+const SUPPORT_EVENTS = new Set(["support.ticket_created", "support.ticket_reply"]);
 function staffOptions(ev) {
-  if (!ORDER_EVENTS.has(ev?.event) || !ev?.staff_url) return {};
+  const label = ORDER_EVENTS.has(ev?.event) ? "View order"
+    : SUPPORT_EVENTS.has(ev?.event) ? "View ticket" : null;
+  if (!label || !ev?.staff_url) return {};
   try {
     const url = new URL(String(ev.staff_url));
     if (!["http:", "https:"].includes(url.protocol)) return {};
-    return { reply_markup: { inline_keyboard: [[{ text: "View order", url: url.toString() }]] } };
+    return { reply_markup: { inline_keyboard: [[{ text: label, url: url.toString() }]] } };
   } catch { return {}; }
 }
 
@@ -141,6 +145,14 @@ async function tgStaff(ev, text) {
 }
 
 function staffText(ev) {
+  if (SUPPORT_EVENTS.has(ev.event)) {
+    const out = [ev.event === "support.ticket_reply" ? "🎫 Support ticket reply" : "🎫 New support ticket"];
+    if (ev.topic) out.push(`Topic: ${ev.topic}`);
+    if (ev.subject) out.push(`Subject: ${ev.subject}`);
+    if (ev.customer_name) out.push(`Customer: ${ev.customer_name}`);
+    if (ev.order_number) out.push(`Order: ${ev.order_number}`);
+    return out.join("\n");
+  }
   const lines = {
     "order.placed": "🧾 New order placed",
     "order.proof_uploaded": "📸 Payment proof uploaded — waiting to be checked",
