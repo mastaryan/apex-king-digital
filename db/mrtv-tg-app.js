@@ -117,10 +117,7 @@ function validateInitData(initData) {
   if (!tgUser || !tgUser.id) return null;
   const authDate = Number(params.get("auth_date") || 0);
   if (authDate && Date.now() / 1000 - authDate > 86400) return null; // stale initData
-  // start_param rides along (referral link: t.me/WatchMRTV_bot?start=ref_MR-####
-  // or ?startapp=ref_MR-####) — it is part of the HMAC-signed initData, so a
-  // referral taken from it is as trustworthy as a typed code.
-  return { id: String(tgUser.id), first_name: tgUser.first_name || "", username: tgUser.username || "", start_param: params.get("start_param") || "" };
+  return { id: String(tgUser.id), first_name: tgUser.first_name || "", username: tgUser.username || "" };
 }
 
 // Signed customer session token: v1.<customerId>.<expUnix>.<hmacHex>.
@@ -168,33 +165,6 @@ async function sendTelegramPing(text) {
     recordPing("sendMessage", text, out);
     return out;
   } catch (e) { const out = { ok: false, error: String(e.message || e).slice(0, 120) }; recordPing("sendMessage", text, out); return out; }
-}
-
-// Referrer DM (Ryan 2026-11-23, option B): same token order as botToken()
-// (order bot first), plus the renewals bot as a fallback — a bot can only
-// DM users who have started it, and referrers met us through the ORDER bot
-// (@WatchMRTV_bot, the mini app). Never throws; a failed DM is silent —
-// the free-month email still goes out.
-async function sendReferrerDm(chatId, text) {
-  const tokens = [];
-  const tgTok = process.env.MRTV_TG_BOT_TOKEN || "";
-  const mainTok = process.env.TELEGRAM_BOT_TOKEN || "";
-  if (tgTok) tokens.push(tgTok);
-  if (mainTok && mainTok !== tgTok) tokens.push(mainTok);
-  for (const token of tokens) {
-    try {
-      const r = await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: String(chatId), text: String(text || "").slice(0, 4000) }),
-      });
-      const j = await r.json().catch(() => ({}));
-      const out = { ok: r.ok && j.ok !== false };
-      recordPing("referrer-dm", text, out);
-      if (out.ok) return out;
-    } catch (e) { /* try the next token */ }
-  }
-  return { ok: false };
 }
 
 // Payment screenshot -> Ryan's Telegram DM as a photo. Best-effort: the
@@ -475,21 +445,14 @@ function mountMrtvTgApp(app, authRequired) {
       if (devices) noteParts.push("Devices: " + devices);
       const countries = cleanStr(o.custom_countries, 200);
       if (countries) noteParts.push("Countries: " + countries);
-      // Referral link (Ryan 2026-11-23): a start_param of ref_MR-#### counts
-      // as the referral when the customer didn't type a code — the link does
-      // the typing. A typed code always wins over the link.
-      let ref = cleanStr(o.referred_by, 120);
-      if (!ref && tgUser && tgUser.start_param) {
-        const m = String(tgUser.start_param).match(/^ref_(.+)$/i);
-        if (m) ref = cleanStr(m[1], 120);
-      }
-      let referrerId = null, referrerName = null, referrerCode = null, referrerChatId = null;
+      const ref = cleanStr(o.referred_by, 120);
+      let referrerId = null, referrerName = null;
       if (ref) {
         const rcode = ref.toUpperCase().replace(/[^A-Z0-9-]/g, "");
         if (rcode) {
           const { rows: m } = await getPool().query(
-            "SELECT id, name, order_code, telegram_chat_id FROM mrtv_customers WHERE UPPER(order_code) = $1 LIMIT 1", [rcode]);
-          if (m.length) { referrerId = m[0].id; referrerName = m[0].name; referrerCode = m[0].order_code; referrerChatId = m[0].telegram_chat_id; }
+            "SELECT id, name FROM mrtv_customers WHERE UPPER(order_code) = $1 LIMIT 1", [rcode]);
+          if (m.length) { referrerId = m[0].id; referrerName = m[0].name; }
         }
       }
       if (ref) noteParts.push("Referred by: " + ref + (referrerName ? " (matched: " + referrerName + ")" : ""));
@@ -519,11 +482,6 @@ function mountMrtvTgApp(app, authRequired) {
         ", $" + (totalC / 100).toFixed(2).replace(/\.00$/, "") + " via " + payMethod + ", code " + code +
         (referrerName ? ". Referred by " + referrerName + " (" + ref + ")" : "") +
         ". Review in the dashboard, then Mark paid & provision.");
-      // Referrer DM (option B): only when the referrer has a linked Telegram,
-      // and never to the buyer themself.
-      if (referrerId && referrerId !== id && referrerChatId) {
-        await sendReferrerDm(referrerChatId, "🎉 Someone signed up with your code " + (referrerCode || ref) + " — 1 free month banked. Thanks for sharing M.R. TV!");
-      }
       const screenshot = o.screenshot || body.screenshot || null;
       if (screenshot) {
         await sendTelegramPhoto(screenshot, "Payment screenshot — " + code + " (" + name + ", " + tvs + " TV" + (tvs === 1 ? "" : "s") + ", " + plan + ")");
@@ -550,18 +508,22 @@ function mountMrtvTgApp(app, authRequired) {
       // notes or pinging Ryan — the ping fires only when the customer taps
       // "I've paid". Without this, merely opening the sheet created a request
       // (2026-11-10 re-test: renew ping fired on open, nothing submitted).
-      let preview = false;
-      try { const b = await readBody(req); preview = !!(b && b.preview); } catch (e) { /* no body = not a preview */ }
+      let preview = false, payMethod = "", payCoin = "";
+      try { const b = await readBody(req); preview = !!(b && b.preview); payMethod = String((b && b.payment_method) || "").toLowerCase(); payCoin = String((b && b.crypto_coin) || "").toLowerCase(); } catch (e) { /* no body = not a preview */ }
       if (preview) return res.json({ ok: true, preview: true, amount_cents: cents, order_code: customer.order_code, within30, plan: customer.plan, tv_count: Number(customer.tv_count) || 1 });
+      const payStr = payMethod === "crypto"
+        ? " Paid via Crypto" + (payCoin ? " (" + payCoin.toUpperCase() + ")" : "") + " — check the wallet for memo code " + (customer.order_code || "") + "."
+        : " Awaiting payment with code " + (customer.order_code || "") + " as memo.";
       const stamp = nyToday() + " ADD-TV REQUEST (Telegram app): +1 TV, $" + (cents / 100).toFixed(2).replace(/\.00$/, "") +
         " (" + (within30 ? "within 30 days of start — bundle price" : "after 30 days — single-TV price, rest of term") +
-        "). Awaiting payment with code " + (customer.order_code || "") + " as memo.";
+        ")" + payStr;
       await getPool().query(
         "UPDATE mrtv_customers SET notes = CASE WHEN notes = '' THEN $1 ELSE $1 || E'\\n' || notes END WHERE id = $2",
         [stamp, customer.id]);
       await sendTelegramPing("📺 Add-TV request (Telegram app): " + customer.name + " (" + (customer.order_code || customer.email) + ") — +1 TV, $" +
         (cents / 100).toFixed(2).replace(/\.00$/, "") + ", " + customer.plan + " term through " + fmtDate(customer.end_date) +
-        " (" + (within30 ? "within 30 days — bundle price" : "after 30 days — single-TV price") + "). Match payment by order code, then provision + update TV count.");
+        " (" + (within30 ? "within 30 days — bundle price" : "after 30 days — single-TV price") + "). " +
+        (payMethod === "crypto" ? "Paid via Crypto" + (payCoin ? " (" + payCoin.toUpperCase() + ")" : "") + " — check the wallet, then provision + update TV count." : "Match payment by order code, then provision + update TV count."));
       return res.json({ ok: true, amount_cents: cents, order_code: customer.order_code, within30, plan: customer.plan, tv_count: Number(customer.tv_count) || 1 });
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 200) }); }
   });
@@ -578,18 +540,22 @@ function mountMrtvTgApp(app, authRequired) {
       if (!customer) return res.status(401).json({ error: "unauthorized" });
       const cents = renewalCents(customer);
       // Preview mode: price only, no notes stamp, no ping (see add-tv).
-      let preview = false;
-      try { const b = await readBody(req); preview = !!(b && b.preview); } catch (e) { /* no body = not a preview */ }
+      let preview = false, payMethod = "", payCoin = "";
+      try { const b = await readBody(req); preview = !!(b && b.preview); payMethod = String((b && b.payment_method) || "").toLowerCase(); payCoin = String((b && b.crypto_coin) || "").toLowerCase(); } catch (e) { /* no body = not a preview */ }
       if (preview) return res.json({ ok: true, preview: true, amount_cents: cents, order_code: customer.order_code, plan: customer.plan, tv_count: Number(customer.tv_count) || 1, end_date: isoDate(customer.end_date) });
+      const payStr = payMethod === "crypto"
+        ? " Paid via Crypto" + (payCoin ? " (" + payCoin.toUpperCase() + ")" : "") + " — check the wallet for memo code " + (customer.order_code || "") + "."
+        : " Awaiting payment with code " + (customer.order_code || "") + " as memo.";
       const stamp = nyToday() + " RENEWAL REQUEST (Telegram app): $" + (cents / 100).toFixed(2).replace(/\.00$/, "") +
         " for " + (Number(customer.tv_count) || 1) + " TV" + ((Number(customer.tv_count) || 1) === 1 ? "" : "s") + ", " + customer.plan +
-        ". Awaiting payment with code " + (customer.order_code || "") + " as memo.";
+        "." + payStr;
       await getPool().query(
         "UPDATE mrtv_customers SET notes = CASE WHEN notes = '' THEN $1 ELSE $1 || E'\\n' || notes END WHERE id = $2",
         [stamp, customer.id]);
       await sendTelegramPing("🔁 Renewal request (Telegram app): " + customer.name + " (" + (customer.order_code || customer.email) + ") — $" +
         (cents / 100).toFixed(2).replace(/\.00$/, "") + ", " + (Number(customer.tv_count) || 1) + " TV" + ((Number(customer.tv_count) || 1) === 1 ? "" : "s") +
-        ", " + customer.plan + ", current term through " + fmtDate(customer.end_date) + ". Match payment by order code, then renew.");
+        ", " + customer.plan + ", current term through " + fmtDate(customer.end_date) + ". " +
+        (payMethod === "crypto" ? "Paid via Crypto" + (payCoin ? " (" + payCoin.toUpperCase() + ")" : "") + " — check the wallet, then renew." : "Match payment by order code, then renew."));
       return res.json({ ok: true, amount_cents: cents, order_code: customer.order_code, plan: customer.plan, tv_count: Number(customer.tv_count) || 1, end_date: isoDate(customer.end_date) });
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 200) }); }
   });
