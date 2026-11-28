@@ -550,18 +550,22 @@ function mountMrtvTgApp(app, authRequired) {
       // notes or pinging Ryan — the ping fires only when the customer taps
       // "I've paid". Without this, merely opening the sheet created a request
       // (2026-11-10 re-test: renew ping fired on open, nothing submitted).
-      let preview = false;
-      try { const b = await readBody(req); preview = !!(b && b.preview); } catch (e) { /* no body = not a preview */ }
+      let preview = false, payMethod = "", payCoin = "";
+      try { const b = await readBody(req); preview = !!(b && b.preview); payMethod = String((b && b.payment_method) || "").toLowerCase(); payCoin = String((b && b.crypto_coin) || "").toLowerCase(); } catch (e) { /* no body = not a preview */ }
       if (preview) return res.json({ ok: true, preview: true, amount_cents: cents, order_code: customer.order_code, within30, plan: customer.plan, tv_count: Number(customer.tv_count) || 1 });
+      const payStr = payMethod === "crypto"
+        ? " Paid via Crypto" + (payCoin ? " (" + payCoin.toUpperCase() + ")" : "") + " — check the wallet for memo code " + (customer.order_code || "") + "."
+        : " Awaiting payment with code " + (customer.order_code || "") + " as memo.";
       const stamp = nyToday() + " ADD-TV REQUEST (Telegram app): +1 TV, $" + (cents / 100).toFixed(2).replace(/\.00$/, "") +
         " (" + (within30 ? "within 30 days of start — bundle price" : "after 30 days — single-TV price, rest of term") +
-        "). Awaiting payment with code " + (customer.order_code || "") + " as memo.";
+        ")" + payStr;
       await getPool().query(
         "UPDATE mrtv_customers SET notes = CASE WHEN notes = '' THEN $1 ELSE $1 || E'\\n' || notes END WHERE id = $2",
         [stamp, customer.id]);
       await sendTelegramPing("📺 Add-TV request (Telegram app): " + customer.name + " (" + (customer.order_code || customer.email) + ") — +1 TV, $" +
         (cents / 100).toFixed(2).replace(/\.00$/, "") + ", " + customer.plan + " term through " + fmtDate(customer.end_date) +
-        " (" + (within30 ? "within 30 days — bundle price" : "after 30 days — single-TV price") + "). Match payment by order code, then provision + update TV count.");
+        " (" + (within30 ? "within 30 days — bundle price" : "after 30 days — single-TV price") + "). " +
+        (payMethod === "crypto" ? "Paid via Crypto" + (payCoin ? " (" + payCoin.toUpperCase() + ")" : "") + " — check the wallet, then provision + update TV count." : "Match payment by order code, then provision + update TV count."));
       return res.json({ ok: true, amount_cents: cents, order_code: customer.order_code, within30, plan: customer.plan, tv_count: Number(customer.tv_count) || 1 });
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 200) }); }
   });
@@ -578,18 +582,22 @@ function mountMrtvTgApp(app, authRequired) {
       if (!customer) return res.status(401).json({ error: "unauthorized" });
       const cents = renewalCents(customer);
       // Preview mode: price only, no notes stamp, no ping (see add-tv).
-      let preview = false;
-      try { const b = await readBody(req); preview = !!(b && b.preview); } catch (e) { /* no body = not a preview */ }
+      let preview = false, payMethod = "", payCoin = "";
+      try { const b = await readBody(req); preview = !!(b && b.preview); payMethod = String((b && b.payment_method) || "").toLowerCase(); payCoin = String((b && b.crypto_coin) || "").toLowerCase(); } catch (e) { /* no body = not a preview */ }
       if (preview) return res.json({ ok: true, preview: true, amount_cents: cents, order_code: customer.order_code, plan: customer.plan, tv_count: Number(customer.tv_count) || 1, end_date: isoDate(customer.end_date) });
+      const payStr = payMethod === "crypto"
+        ? " Paid via Crypto" + (payCoin ? " (" + payCoin.toUpperCase() + ")" : "") + " — check the wallet for memo code " + (customer.order_code || "") + "."
+        : " Awaiting payment with code " + (customer.order_code || "") + " as memo.";
       const stamp = nyToday() + " RENEWAL REQUEST (Telegram app): $" + (cents / 100).toFixed(2).replace(/\.00$/, "") +
         " for " + (Number(customer.tv_count) || 1) + " TV" + ((Number(customer.tv_count) || 1) === 1 ? "" : "s") + ", " + customer.plan +
-        ". Awaiting payment with code " + (customer.order_code || "") + " as memo.";
+        "." + payStr;
       await getPool().query(
         "UPDATE mrtv_customers SET notes = CASE WHEN notes = '' THEN $1 ELSE $1 || E'\\n' || notes END WHERE id = $2",
         [stamp, customer.id]);
       await sendTelegramPing("🔁 Renewal request (Telegram app): " + customer.name + " (" + (customer.order_code || customer.email) + ") — $" +
         (cents / 100).toFixed(2).replace(/\.00$/, "") + ", " + (Number(customer.tv_count) || 1) + " TV" + ((Number(customer.tv_count) || 1) === 1 ? "" : "s") +
-        ", " + customer.plan + ", current term through " + fmtDate(customer.end_date) + ". Match payment by order code, then renew.");
+        ", " + customer.plan + ", current term through " + fmtDate(customer.end_date) + ". " +
+        (payMethod === "crypto" ? "Paid via Crypto" + (payCoin ? " (" + payCoin.toUpperCase() + ")" : "") + " — check the wallet, then renew." : "Match payment by order code, then renew."));
       return res.json({ ok: true, amount_cents: cents, order_code: customer.order_code, plan: customer.plan, tv_count: Number(customer.tv_count) || 1, end_date: isoDate(customer.end_date) });
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 200) }); }
   });
